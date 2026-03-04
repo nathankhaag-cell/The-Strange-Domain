@@ -2770,15 +2770,18 @@ async function processMessageEmbeds(msgId, rawText) {
  *  - always shows a "Watch on YouTube" link
  */
 function renderYouTubeEmbed(container, url, videoId) {
-    const thumbUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
-    const embedSrc = `https://www.youtube.com/embed/${videoId}?autoplay=0`;
-    const openUrl  = escapeHtml(url);
+    // Use enablejsapi=1 so YouTube sends postMessage error events
+    const embedSrc  = `https://www.youtube.com/embed/${videoId}?autoplay=0&enablejsapi=1`;
+    const thumbUrl  = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+    const openUrl   = escapeHtml(url);
+    let   swapped   = false;
 
     const card = document.createElement('div');
     card.className = 'embed-card';
     card.style.borderLeftColor = '#ff0000';
 
-    // Build with both iframe and thumbnail fallback layered
+    // Render iframe + hidden thumb side by side in DOM
+    // swapToThumb() replaces the iframe wrap with the thumb in-place
     card.innerHTML = `
         <div class="embed-header">
             <img src="https://www.google.com/s2/favicons?domain=youtube.com&sz=32" class="embed-favicon">
@@ -2790,22 +2793,17 @@ function renderYouTubeEmbed(container, url, videoId) {
                 frameborder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowfullscreen
-                class="embed-video-iframe"
-                onerror="document.getElementById('yt-wrap-${videoId}').innerHTML=document.getElementById('yt-thumb-${videoId}').outerHTML">
+                class="embed-video-iframe">
             </iframe>
         </div>
-        <!-- Hidden thumbnail shown if iframe errors -->
-        <div id="yt-thumb-${videoId}" style="display:none">
-            <a href="${openUrl}" target="_blank" rel="noopener"
-               onclick="event.preventDefault();if(window.electronAPI)window.electronAPI.openExternal('${openUrl}');else window.open('${openUrl}','_blank')"
-               style="display:block;position:relative;cursor:pointer;">
-                <img src="${thumbUrl}" style="width:100%;border:1px solid #333;" onerror="this.style.display='none'">
-                <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-                            background:rgba(0,0,0,0.75);border-radius:50%;width:56px;height:56px;
-                            display:flex;align-items:center;justify-content:center;">
-                    <span style="color:#fff;font-size:1.5rem;margin-left:4px;">▶</span>
-                </div>
-            </a>
+        <div id="yt-thumb-${videoId}" style="display:none;cursor:pointer;position:relative;">
+            <img src="${thumbUrl}" style="width:100%;border:1px solid #333;display:block;"
+                 onerror="this.style.display='none'">
+            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                        background:rgba(0,0,0,0.75);border-radius:50%;width:56px;height:56px;
+                        display:flex;align-items:center;justify-content:center;pointer-events:none;">
+                <span style="color:#fff;font-size:1.5rem;margin-left:4px;">▶</span>
+            </div>
         </div>
         <a href="${openUrl}" target="_blank" rel="noopener" class="embed-title"
             onclick="event.preventDefault();if(window.electronAPI)window.electronAPI.openExternal('${openUrl}');else window.open('${openUrl}','_blank')">
@@ -2813,47 +2811,48 @@ function renderYouTubeEmbed(container, url, videoId) {
         </a>
     `;
 
-    // If the iframe fires an error event, swap to thumbnail
-    // (onerror on iframe is unreliable — use message listener instead)
-    const iframe = card.querySelector('iframe');
-    if (iframe) {
-        // YouTube posts a message when playback is blocked
-        const handler = (e) => {
-            if (typeof e.data !== 'object') return;
-            if (e.data.event === 'infoDelivery' && e.data.info && e.data.info.errorCode) {
-                swapToThumb();
-                window.removeEventListener('message', handler);
-            }
-        };
-        window.addEventListener('message', handler);
-
-        // Also swap after a short delay if the iframe src returns an error page
-        // by checking if it loaded a blank/error page via load event
-        iframe.addEventListener('load', () => {
-            try {
-                // If contentDocument is accessible and empty it's an error page
-                if (iframe.contentDocument && iframe.contentDocument.title &&
-                    iframe.contentDocument.title.toLowerCase().includes('error')) {
-                    swapToThumb();
-                }
-            } catch(e) { /* cross-origin, expected */ }
-        });
-    }
-
     function swapToThumb() {
-        const wrap  = card.querySelector(`#yt-wrap-${videoId}`);
-        const thumb = card.querySelector(`#yt-thumb-${videoId}`);
-        if (wrap && thumb) {
-            wrap.innerHTML = thumb.outerHTML;
-            thumb.remove();
-        }
+        if (swapped) return;
+        swapped = true;
+        const wrap  = document.getElementById(`yt-wrap-${videoId}`);
+        const thumb = document.getElementById(`yt-thumb-${videoId}`);
+        if (!wrap || !thumb) return;
+        wrap.style.display  = 'none';       // hide iframe
+        thumb.style.display = 'block';      // show thumbnail
+        // Make thumbnail click open YouTube
+        thumb.onclick = () => {
+            if (window.electronAPI) window.electronAPI.openExternal(url);
+            else window.open(url, '_blank');
+        };
+        window.removeEventListener('message', ytMsgHandler);
     }
+
+    // YouTube sends error codes via postMessage when embedding is blocked.
+    // Data arrives as a JSON STRING — must parse it first.
+    // Error codes: 2=invalid id, 5=html5 error, 100=not found,
+    //              101/150=embed disabled by owner, 153=domain blocked
+    function ytMsgHandler(e) {
+        if (!e.data) return;
+        try {
+            const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+            if (!msg || msg.event !== 'infoDelivery') return;
+            const code = msg.info && msg.info.errorCode;
+            if (code === 2 || code === 5 || code === 100 || code === 101 || code === 150 || code === 153) {
+                swapToThumb();
+            }
+        } catch (err) { /* unrelated postMessage, ignore */ }
+    }
+    window.addEventListener('message', ytMsgHandler);
 
     const dismiss = document.createElement('button');
     dismiss.className = 'embed-dismiss';
     dismiss.innerHTML = '✕';
     dismiss.title = 'Hide embed';
-    dismiss.onclick = (e) => { e.stopPropagation(); card.remove(); };
+    dismiss.onclick = (e) => {
+        e.stopPropagation();
+        window.removeEventListener('message', ytMsgHandler);
+        card.remove();
+    };
     card.appendChild(dismiss);
     container.appendChild(card);
 }
@@ -2907,10 +2906,50 @@ function renderDirectImage(container, url) {
     container.appendChild(card);
 }
 
+/**
+ * Static card for X / Twitter — works identically in browser and Electron.
+ * X blocks all CORS proxies and Electron fetches return bot-detection HTML,
+ * so we skip the fetch entirely and build from the URL alone.
+ */
+function renderXCard(container, url) {
+    const openUrl   = escapeHtml(url);
+    const postMatch = url.match(/(?:x\.com|twitter\.com)\/([^/?#]+)\/status\/(\d+)/);
+    const username  = postMatch ? '@' + postMatch[1] : 'X / Twitter';
+
+    const card = document.createElement('div');
+    card.className = 'embed-card';
+    card.style.borderLeftColor = '#1d9bf0';
+    card.innerHTML = `
+        <div class="embed-header">
+            <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:#1d9bf0;flex-shrink:0;">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+            </svg>
+            <span class="embed-site-name" style="color:#1d9bf0;">${escapeHtml(username)}</span>
+        </div>
+        <a href="${openUrl}" target="_blank" rel="noopener" class="embed-title"
+            onclick="event.preventDefault();if(window.electronAPI)window.electronAPI.openExternal('${openUrl}');else window.open('${openUrl}','_blank')">
+            View post on X ↗
+        </a>
+    `;
+    const dismiss = document.createElement('button');
+    dismiss.className = 'embed-dismiss';
+    dismiss.innerHTML = '✕';
+    dismiss.onclick = (e) => { e.stopPropagation(); card.remove(); };
+    card.appendChild(dismiss);
+    container.appendChild(card);
+}
+
 /** Fetch OG metadata and render an embed card */
 async function fetchAndRenderEmbed(msgId, url) {
     const container = document.getElementById(`embeds-${msgId}`);
     if (!container) return;
+
+    // X.com / Twitter: blocks all fetches — render static card directly
+    const _host = extractDomain(url).toLowerCase();
+    if (_host.includes('x.com') || _host.includes('twitter.com')) {
+        renderXCard(container, url);
+        return;
+    }
 
     let data = _embedCache[url];
     if (!data) {
