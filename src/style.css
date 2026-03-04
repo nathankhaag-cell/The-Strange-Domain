@@ -237,8 +237,11 @@ html, body {
     border: 1px solid #007a2a;
     box-shadow: 0 0 20px rgba(0, 255, 65, 0.08);
     display: flex;
+    flex-wrap: wrap;
     gap: 2px;
     padding: 6px;
+    max-width: min(420px, 90vw);
+    width: max-content;
 }
 #emoji-picker.hidden { display: none; }
 .emoji-opt {

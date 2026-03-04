@@ -190,10 +190,10 @@ let dmListeners       = {};
 const textChannels = [
     { id: "general-chat", name: "#general", desc: "Agent chatter & mission updates", icon: "fa-comment-dots" },
     { id: "memes",        name: "#memes",   desc: "Anomaly-grade humor only",       icon: "fa-laugh-beam"  },
-    { id: "bugs",        name: "#bug_reports",   desc: "User pug submission",        icon: "fa-envelope"    }
+    { id: "bugs",        name: "#bug_reports",   desc: "User bug submission",        icon: "fa-envelope"    }
 ];
 
-const EMOJIS = ['👍','👎','❤️','😂','🔥','😮','👀','💀','🗿'];
+const EMOJIS = ['👍','👎','❤️','😂','🔥','😮','👀','💀','🗿','💯'];
 
 // Replace with your free key from https://imgbb.com/signup
 const IMGBB_API_KEY = "1e75ac7036f44357c841b198ab2aab17";
@@ -890,7 +890,22 @@ async function saveEditMessage(id) {
     if (!ta) return;
     const newText = ta.value.trim();
     if (!newText) return;
+
     await getMessagesRef(currentChannelId, isDMChannel).child(id).update({ text: newText, edited: true }).catch(console.error);
+
+    // Restore UI immediately — child_changed skips editing elements so we do it here
+    const textEl = document.getElementById(`text-${id}`);
+    if (!textEl) return;
+    delete textEl.dataset.editing;
+    textEl.dataset.raw = newText;
+    let html = linkifyText(escapeHtml(newText));
+    html += `<span class="edited-tag" id="edited-${id}">(edited)</span>`;
+    textEl.innerHTML = html;
+
+    // Re-process embeds for the updated text
+    const embedContainer = document.getElementById(`embeds-${id}`);
+    if (embedContainer) embedContainer.innerHTML = '';
+    processMessageEmbeds(id, newText);
 }
 
 function cancelEditMessage(id) {
@@ -960,9 +975,30 @@ function showEmojiPicker(msgId, btn) {
     const picker = document.getElementById("emoji-picker");
     const rect   = btn.getBoundingClientRect();
     picker.dataset.targetMsgId = msgId;
-    picker.style.top  = `${rect.bottom + 4}px`;
-    picker.style.left = `${Math.min(rect.left, window.innerWidth - 340)}px`;
+
+    // Show offscreen first to measure actual rendered width
+    picker.style.visibility = 'hidden';
+    picker.style.left = '0px';
+    picker.style.top  = '0px';
     picker.classList.remove("hidden");
+
+    const pickerW = picker.offsetWidth;
+    const pickerH = picker.offsetHeight;
+    const margin  = 8;
+    const vw      = window.innerWidth;
+    const vh      = window.innerHeight;
+
+    // Center under the button, clamped so it never leaves the viewport
+    let left = rect.left + (rect.width / 2) - (pickerW / 2);
+    left = Math.max(margin, Math.min(left, vw - pickerW - margin));
+
+    // Prefer below the button, flip above if not enough room
+    let top = rect.bottom + 4;
+    if (top + pickerH > vh - margin) top = rect.top - pickerH - 4;
+
+    picker.style.left = `${left}px`;
+    picker.style.top  = `${top}px`;
+    picker.style.visibility = '';
 }
 
 function hideEmojiPicker() {
@@ -2690,6 +2726,12 @@ async function processMessageEmbeds(msgId, rawText) {
     const unique = [...new Set(urls)].slice(0, 3);
     for (const url of unique) {
         try {
+            // YouTube — build player directly from URL, no CORS fetch needed
+            const ytId = extractYouTubeId(url);
+            if (ytId) {
+                renderYouTubeEmbed(container, url, ytId);
+                continue;
+            }
             // Direct video URL → inline player (no fetch needed)
             if (DIRECT_VIDEO_RE.test(url)) {
                 renderDirectVideo(container, url);
@@ -2710,6 +2752,101 @@ async function processMessageEmbeds(msgId, rawText) {
             console.warn('Embed failed:', url, e);
         }
     }
+}
+
+/**
+ * Render a YouTube card with:
+ *  - iframe player (works when embedding is allowed)
+ *  - thumbnail fallback if the video blocks embedding (Error 153 etc.)
+ *  - always shows a "Watch on YouTube" link
+ */
+function renderYouTubeEmbed(container, url, videoId) {
+    const thumbUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+    const embedSrc = `https://www.youtube.com/embed/${videoId}?autoplay=0`;
+    const openUrl  = escapeHtml(url);
+
+    const card = document.createElement('div');
+    card.className = 'embed-card';
+    card.style.borderLeftColor = '#ff0000';
+
+    // Build with both iframe and thumbnail fallback layered
+    card.innerHTML = `
+        <div class="embed-header">
+            <img src="https://www.google.com/s2/favicons?domain=youtube.com&sz=32" class="embed-favicon">
+            <span class="embed-site-name">YouTube</span>
+        </div>
+        <div class="embed-video-wrap" id="yt-wrap-${videoId}">
+            <iframe
+                src="${embedSrc}"
+                frameborder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+                class="embed-video-iframe"
+                onerror="document.getElementById('yt-wrap-${videoId}').innerHTML=document.getElementById('yt-thumb-${videoId}').outerHTML">
+            </iframe>
+        </div>
+        <!-- Hidden thumbnail shown if iframe errors -->
+        <div id="yt-thumb-${videoId}" style="display:none">
+            <a href="${openUrl}" target="_blank" rel="noopener"
+               onclick="event.preventDefault();if(window.electronAPI)window.electronAPI.openExternal('${openUrl}');else window.open('${openUrl}','_blank')"
+               style="display:block;position:relative;cursor:pointer;">
+                <img src="${thumbUrl}" style="width:100%;border:1px solid #333;" onerror="this.style.display='none'">
+                <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                            background:rgba(0,0,0,0.75);border-radius:50%;width:56px;height:56px;
+                            display:flex;align-items:center;justify-content:center;">
+                    <span style="color:#fff;font-size:1.5rem;margin-left:4px;">▶</span>
+                </div>
+            </a>
+        </div>
+        <a href="${openUrl}" target="_blank" rel="noopener" class="embed-title"
+            onclick="event.preventDefault();if(window.electronAPI)window.electronAPI.openExternal('${openUrl}');else window.open('${openUrl}','_blank')">
+            Watch on YouTube ↗
+        </a>
+    `;
+
+    // If the iframe fires an error event, swap to thumbnail
+    // (onerror on iframe is unreliable — use message listener instead)
+    const iframe = card.querySelector('iframe');
+    if (iframe) {
+        // YouTube posts a message when playback is blocked
+        const handler = (e) => {
+            if (typeof e.data !== 'object') return;
+            if (e.data.event === 'infoDelivery' && e.data.info && e.data.info.errorCode) {
+                swapToThumb();
+                window.removeEventListener('message', handler);
+            }
+        };
+        window.addEventListener('message', handler);
+
+        // Also swap after a short delay if the iframe src returns an error page
+        // by checking if it loaded a blank/error page via load event
+        iframe.addEventListener('load', () => {
+            try {
+                // If contentDocument is accessible and empty it's an error page
+                if (iframe.contentDocument && iframe.contentDocument.title &&
+                    iframe.contentDocument.title.toLowerCase().includes('error')) {
+                    swapToThumb();
+                }
+            } catch(e) { /* cross-origin, expected */ }
+        });
+    }
+
+    function swapToThumb() {
+        const wrap  = card.querySelector(`#yt-wrap-${videoId}`);
+        const thumb = card.querySelector(`#yt-thumb-${videoId}`);
+        if (wrap && thumb) {
+            wrap.innerHTML = thumb.outerHTML;
+            thumb.remove();
+        }
+    }
+
+    const dismiss = document.createElement('button');
+    dismiss.className = 'embed-dismiss';
+    dismiss.innerHTML = '✕';
+    dismiss.title = 'Hide embed';
+    dismiss.onclick = (e) => { e.stopPropagation(); card.remove(); };
+    card.appendChild(dismiss);
+    container.appendChild(card);
 }
 
 function renderDirectVideo(container, url) {
@@ -2810,16 +2947,9 @@ async function fetchAndRenderEmbed(msgId, url) {
         embedHtml += `<div class="embed-description">${escapeHtml(truncate(data.description, 250))}</div>`;
     }
 
-    // YouTube / video embed → inline player
+    // YouTube handled upstream in processMessageEmbeds — skip to avoid duplicates
     if (embedType === 'youtube') {
-        const videoId = extractYouTubeId(url);
-        if (videoId) {
-            embedHtml += `<div class="embed-video-wrap">
-                <iframe src="https://www.youtube.com/embed/${videoId}?autoplay=0" 
-                    frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                    allowfullscreen class="embed-video-iframe"></iframe>
-            </div>`;
-        }
+        return;
     } else if (embedType === 'twitch-clip') {
         const clipSlug = extractTwitchClipSlug(url);
         if (clipSlug) {
@@ -2874,39 +3004,24 @@ async function fetchAndRenderEmbed(msgId, url) {
 
 /** Browser fallback: try multiple CORS proxies in sequence until one works */
 async function fetchLinkPreviewBrowser(url) {
-    // Proxy list — tried in order, first success wins
     const proxies = [
-        // allorigins /raw — returns raw HTML directly
         () => fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(6000) })
               .then(r => r.ok ? r.text() : Promise.reject()),
-
-        // allorigins /get — returns JSON wrapper, pull .contents
         () => fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(6000) })
               .then(r => r.ok ? r.json() : Promise.reject())
               .then(j => j.contents || Promise.reject()),
-
-        // corsproxy.io
         () => fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(6000) })
               .then(r => r.ok ? r.text() : Promise.reject()),
-
-        // cors-anywhere hosted fallback
-        () => fetch(`https://cors-anywhere.herokuapp.com/${url}`, {
-                signal: AbortSignal.timeout(6000),
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-              }).then(r => r.ok ? r.text() : Promise.reject()),
     ];
-
     for (const attempt of proxies) {
         try {
             const html = await attempt();
             if (!html || typeof html !== 'string') continue;
             const result = parseLinkPreviewHtml(html, url);
-            if (result) return result;  // got usable data, stop trying
-        } catch (e) {
-            // This proxy failed — try the next one
-        }
+            if (result) return result;
+        } catch (e) { /* try next proxy */ }
     }
-    return null;  // all proxies exhausted
+    return null;
 }
 
 function parseLinkPreviewHtml(html, sourceUrl) {
