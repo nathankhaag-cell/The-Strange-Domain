@@ -245,7 +245,7 @@ html, body {
 }
 #emoji-picker.hidden { display: none; }
 
-/* Mobile: pin to bottom of screen as a full-width sheet */
+/* Mobile: full-width bottom sheet instead of floating dropdown */
 @media (max-width: 767px) {
     #emoji-picker {
         left: 0 !important;
