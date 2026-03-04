@@ -223,6 +223,7 @@ function initApp() {
         db   = firebase.database();
 
         initEmojiPicker();
+        initUpdaterUI();
 
         document.getElementById("content-area").innerHTML = `
             <div class="flex items-center justify-center h-full text-[#00ff41] retro-font text-2xl">
@@ -953,6 +954,96 @@ function detachAllReactionListeners() {
     for (const k in _rxListeners) delete _rxListeners[k];
 }
 
+// =====================================================
+//  AUTO-UPDATER UI  (Electron only)
+// =====================================================
+function initUpdaterUI() {
+    if (!window.electronAPI || !window.electronAPI.onUpdaterStatus) return;
+
+    const banner      = document.getElementById('update-banner');
+    const icon        = document.getElementById('update-banner-icon');
+    const text        = document.getElementById('update-banner-text');
+    const progressWrap= document.getElementById('update-progress-wrap');
+    const progressBar = document.getElementById('update-progress-bar');
+    const progressPct = document.getElementById('update-progress-pct');
+    const restartBtn  = document.getElementById('update-restart-btn');
+
+    if (!banner) return;
+
+    function showBanner() {
+        banner.style.display = 'flex';
+        banner.classList.remove('hidden');
+    }
+    function hideBanner() {
+        banner.style.display = 'none';
+    }
+    function setProgress(pct) {
+        progressWrap.style.display = 'block';
+        progressPct.style.display  = 'inline';
+        progressBar.style.width    = `${pct}%`;
+        progressPct.textContent    = `${pct}%`;
+    }
+    function hideProgress() {
+        progressWrap.style.display = 'none';
+        progressPct.style.display  = 'none';
+    }
+
+    window.electronAPI.onUpdaterStatus(({ status, version, percent, message }) => {
+        // Reset state
+        restartBtn.style.display = 'none';
+        hideProgress();
+
+        switch (status) {
+            case 'checking':
+                showBanner();
+                icon.textContent = '⬡';
+                icon.style.color = '#007a2a';
+                text.textContent = 'SCANNING FOR UPDATES...';
+                break;
+
+            case 'not-available':
+                // Hide silently — no need to bother the user
+                setTimeout(hideBanner, 1500);
+                break;
+
+            case 'available':
+                showBanner();
+                icon.textContent = '▼';
+                icon.style.color = '#00ff41';
+                text.textContent = `UPDATE DETECTED — v${version} — DOWNLOADING...`;
+                break;
+
+            case 'downloading':
+                showBanner();
+                icon.textContent = '▼';
+                icon.style.color = '#00ff41';
+                text.textContent = `DOWNLOADING UPDATE v${version || ''}...`;
+                setProgress(percent || 0);
+                break;
+
+            case 'downloaded':
+                showBanner();
+                icon.textContent = '✓';
+                icon.style.color = '#00ff41';
+                text.textContent = `UPDATE v${version} READY TO INSTALL`;
+                restartBtn.style.display = 'inline-block';
+                // Pulse the icon to draw attention
+                icon.style.animation = 'none';
+                icon.style.textShadow = '0 0 8px #00ff41';
+                break;
+
+            case 'error':
+                // Show briefly then hide — don't alarm the user
+                showBanner();
+                icon.textContent = '⚠';
+                icon.style.color = '#7f0000';
+                text.textContent = 'UPDATE CHECK FAILED — WILL RETRY NEXT LAUNCH';
+                setTimeout(hideBanner, 4000);
+                break;
+        }
+    });
+}
+
 function initEmojiPicker() {
     const picker = document.getElementById("emoji-picker");
     EMOJIS.forEach(emoji => {
@@ -973,41 +1064,11 @@ function initEmojiPicker() {
 
 function showEmojiPicker(msgId, btn) {
     const picker = document.getElementById("emoji-picker");
+    const rect   = btn.getBoundingClientRect();
     picker.dataset.targetMsgId = msgId;
-
-    // Mobile: CSS pins picker to bottom of screen — skip JS positioning entirely
-    if (window.innerWidth <= 767) {
-        picker.style.left   = '';
-        picker.style.top    = '';
-        picker.style.bottom = '';
-        picker.classList.remove("hidden");
-        return;
-    }
-
-    // Desktop: measure then center under button, clamped within viewport
-    picker.style.visibility = 'hidden';
-    picker.style.left = '0px';
-    picker.style.top  = '0px';
+    picker.style.top  = `${rect.bottom + 4}px`;
+    picker.style.left = `${Math.min(rect.left, window.innerWidth - 340)}px`;
     picker.classList.remove("hidden");
-
-    const rect    = btn.getBoundingClientRect();
-    const pickerW = picker.offsetWidth;
-    const pickerH = picker.offsetHeight;
-    const margin  = 8;
-    const vw      = window.innerWidth;
-    const vh      = window.innerHeight;
-
-    // Center under the button, clamped so it never leaves the viewport
-    let left = rect.left + (rect.width / 2) - (pickerW / 2);
-    left = Math.max(margin, Math.min(left, vw - pickerW - margin));
-
-    // Prefer below, flip above if not enough room
-    let top = rect.bottom + 4;
-    if (top + pickerH > vh - margin) top = rect.top - pickerH - 4;
-
-    picker.style.left       = `${left}px`;
-    picker.style.top        = `${top}px`;
-    picker.style.visibility = '';
 }
 
 function hideEmojiPicker() {
