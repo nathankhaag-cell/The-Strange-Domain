@@ -177,6 +177,7 @@ let currentUID        = null;
 let currentChatRef    = null;
 let crewListener      = null;
 let isAdmin           = false;
+let isMod             = false;   // moderator — can mute/ban/delete but not promote
 let isMuted           = false;
 let muteListener      = null;
 let adminLogListener  = null;
@@ -249,6 +250,7 @@ function initApp() {
             // Apply profile data immediately
             currentUserData = profileSnap.val() || {};
             isAdmin = currentUserData.role === 'admin';
+            isMod   = currentUserData.role === 'moderator';
             updateHeader();
 
             // Apply DMs
@@ -454,6 +456,7 @@ async function loadUserProfile() {
     const snap = await db.ref(`users/${currentUID}`).once('value');
     currentUserData = snap.val() || {};
     isAdmin = currentUserData.role === 'admin';
+    isMod   = currentUserData.role === 'moderator';
     updateHeader();
 }
 
@@ -463,9 +466,12 @@ function updateHeader() {
     document.getElementById("header-avatar").src           = currentUserData.avatar   ||
         "https://static.wikia.nocookie.net/destinypedia/images/6/6e/Human.png";
 
-    // Show/hide admin button
+    // Show admin/mod panel button for both admins and moderators
     const adminBtn = document.getElementById("admin-panel-btn");
-    if (adminBtn) adminBtn.classList.toggle("hidden", !isAdmin);
+    if (adminBtn) {
+        adminBtn.classList.toggle("hidden", !isAdmin && !isMod);
+        adminBtn.textContent = isAdmin ? '⬡ ADMIN' : '⬡ MOD';
+    }
 }
 
 function showProfileModal() {
@@ -814,10 +820,10 @@ function renderMessage(id, msg) {
                <button onclick="deleteMessage('${id}')"
                    class="text-[11px] text-red-900 hover:text-red-500 retro-font uppercase border border-transparent hover:border-red-900/50 px-2 py-0.5 transition-all">PURGE</button>
            </div>`
-        : isAdmin
+        : (isAdmin || isMod)
         ? `<div class="msg-controls flex gap-1.5 opacity-0 transition-opacity">
-               <button onclick="adminDeleteMessage('${id}', '${escapeHtml(msg.callsign || '')}')"
-                   class="admin-msg-delete">⬡ DEL</button>
+               <button onclick="adminDeleteMessage('${id}', '${escapeHtml(msg.callsign || '')}', '${escapeHtml(msg.role || '')}')"
+                   class="admin-msg-delete ${isMod && !isAdmin ? 'mod-del' : ''}">⬡ DEL</button>
            </div>`
         : '';
 
@@ -1380,6 +1386,8 @@ function userProfileDM() {
 // =====================================================
 function setupMuteListener() {
     if (muteListener) muteListener.off();
+
+    // ── Watch mute flag ──
     muteListener = db.ref(`users/${currentUID}/muted`);
     muteListener.on('value', snap => {
         isMuted = snap.val() === true;
@@ -1389,6 +1397,24 @@ function setupMuteListener() {
             notice.classList.toggle("hidden", !isMuted);
             controls.classList.toggle("hidden", isMuted);
         }
+        // Kill mic in voice channel when muted by admin/mod
+        if (isMuted && vcLocalStream) {
+            vcLocalStream.getAudioTracks().forEach(t => { t.enabled = false; });
+            vcMicEnabled = false;
+            if (vcPresenceRef) vcPresenceRef.update({ muted: true }).catch(() => {});
+            // Update mic button UI
+            const micBtn = document.getElementById('vc-mic-btn');
+            if (micBtn) micBtn.classList.add('muted');
+        }
+    });
+
+    // ── Watch banned flag — sign out immediately if banned mid-session ──
+    db.ref(`users/${currentUID}/banned`).on('value', snap => {
+        if (snap.val() === true) {
+            auth.signOut().then(() => {
+                window.location.replace('login.html?banned=1');
+            });
+        }
     });
 }
 
@@ -1396,8 +1422,13 @@ function setupMuteListener() {
 // =====================================================
 //  ADMIN — message deletion
 // =====================================================
-function adminDeleteMessage(msgId, callsign) {
-    if (!isAdmin) return;
+function adminDeleteMessage(msgId, callsign, targetRole) {
+    if (!isAdmin && !isMod) return;
+    // Moderators cannot delete messages from admins
+    if (isMod && !isAdmin && targetRole === 'admin') {
+        sysToast('INSUFFICIENT CLEARANCE — cannot purge admin transmissions', 'error');
+        return;
+    }
     sysConfirm({ title: "PURGE MESSAGE", msg: `Delete transmission from ${callsign}? This action will be logged.`,
         confirmText: "PURGE", danger: true,
         onConfirm: () => getMessagesRef(currentChannelId, isDMChannel).child(msgId).remove()
@@ -1410,7 +1441,7 @@ function adminDeleteMessage(msgId, callsign) {
 //  ADMIN — panel open / close / tabs
 // =====================================================
 function showAdminPanel() {
-    if (!isAdmin) return;
+    if (!isAdmin && !isMod) return;
     document.getElementById("admin-panel-modal").classList.remove("hidden");
     adminTab('users');
     loadAdminUserList();
@@ -1455,37 +1486,46 @@ async function loadAdminUserList() {
 
         const isSelf       = uid === currentUID;
         const userIsAdmin  = user.role === 'admin';
+        const userIsMod    = user.role === 'moderator';
         const userIsMuted  = user.muted  === true;
         const userIsBanned = user.banned === true;
+        const userRole     = user.role || 'member';
+        // Mods cannot act on admins or other mods
+        const isProtected  = isMod && !isAdmin && (userIsAdmin || userIsMod);
 
         let rowClass = 'admin-user-row';
         if (userIsAdmin)  rowClass += ' is-admin';
+        if (userIsMod)    rowClass += ' is-mod';
         if (userIsMuted)  rowClass += ' is-muted';
         if (userIsBanned) rowClass += ' is-banned';
 
         const badges = [
-            userIsAdmin  ? `<span class="admin-badge admin">ADMIN</span>` : '',
-            userIsMuted  ? `<span class="admin-badge muted">MUTED</span>` : '',
-            userIsBanned ? `<span class="admin-badge banned">BANNED</span>` : '',
+            userIsAdmin  ? `<span class="admin-badge admin">ADMIN</span>`     : '',
+            userIsMod    ? `<span class="admin-badge mod">MODERATOR</span>`   : '',
+            userIsMuted  ? `<span class="admin-badge muted">MUTED</span>`     : '',
+            userIsBanned ? `<span class="admin-badge banned">BANNED</span>`   : '',
             user.online  ? `<span class="text-[9px] text-[#00ff41] font-bold retro-font tracking-widest">● ONLINE</span>`
                          : `<span class="text-[9px] text-[#004411] retro-font tracking-widest">○ OFFLINE</span>`,
         ].filter(Boolean).join('');
 
-        // Build action buttons (can't act on yourself)
-        const actions = isSelf ? `<span class="text-[9px] text-[#004411] retro-font tracking-widest">(YOU)</span>` : `
+        // Build action buttons (can't act on yourself or protected targets)
+        const actions = isSelf ? `<span class="text-[9px] text-[#004411] retro-font tracking-widest">(YOU)</span>`
+            : isProtected ? `<span class="text-[9px] text-[#004411] retro-font tracking-widest">PROTECTED</span>`
+            : `
             <div class="flex gap-2 flex-wrap">
                 ${userIsMuted
                     ? `<button class="admin-action-btn unmute" onclick="adminUnmute('${uid}','${escapeHtml(user.callsign || '')}')">UNMUTE</button>`
-                    : `<button class="admin-action-btn mute"   onclick="adminMute('${uid}','${escapeHtml(user.callsign || '')}')">MUTE</button>`
+                    : `<button class="admin-action-btn mute"   onclick="adminMute('${uid}','${escapeHtml(user.callsign || '')}','${userRole}')">MUTE</button>`
                 }
                 ${userIsBanned
                     ? `<button class="admin-action-btn unban" onclick="adminUnban('${uid}','${escapeHtml(user.callsign || '')}')">UNBAN</button>`
-                    : `<button class="admin-action-btn ban"   onclick="adminBan('${uid}','${escapeHtml(user.callsign || '')}')">BAN</button>`
+                    : `<button class="admin-action-btn ban"   onclick="adminBan('${uid}','${escapeHtml(user.callsign || '')}','${userRole}')">BAN</button>`
                 }
-                ${userIsAdmin
+                ${isAdmin ? (
+                    userIsAdmin || userIsMod
                     ? `<button class="admin-action-btn demote"  onclick="adminDemote('${uid}','${escapeHtml(user.callsign || '')}')">DEMOTE</button>`
                     : `<button class="admin-action-btn promote" onclick="adminPromote('${uid}','${escapeHtml(user.callsign || '')}')">PROMOTE</button>`
-                }
+                ) : ''}
             </div>
         `;
 
@@ -1522,39 +1562,47 @@ async function refreshAdminRow(uid) {
     if (!user) return;
 
     const userIsAdmin  = user.role  === 'admin';
+    const userIsMod    = user.role  === 'moderator';
     const userIsMuted  = user.muted === true;
     const userIsBanned = user.banned === true;
+    const userRole     = user.role || 'member';
+    const isProtected  = isMod && !isAdmin && (userIsAdmin || userIsMod);
 
     const oldRow = document.getElementById(`admin-row-${uid}`);
     if (!oldRow) { loadAdminUserList(); return; }  // fallback full reload
 
     let rowClass = 'admin-user-row';
     if (userIsAdmin)  rowClass += ' is-admin';
+    if (userIsMod)    rowClass += ' is-mod';
     if (userIsMuted)  rowClass += ' is-muted';
     if (userIsBanned) rowClass += ' is-banned';
 
     const badges = [
-        userIsAdmin  ? `<span class="admin-badge admin">ADMIN</span>` : '',
-        userIsMuted  ? `<span class="admin-badge muted">MUTED</span>` : '',
+        userIsAdmin  ? `<span class="admin-badge admin">ADMIN</span>`   : '',
+        userIsMod    ? `<span class="admin-badge mod">MODERATOR</span>` : '',
+        userIsMuted  ? `<span class="admin-badge muted">MUTED</span>`   : '',
         userIsBanned ? `<span class="admin-badge banned">BANNED</span>` : '',
         user.online  ? `<span class="text-[9px] text-[#00ff41] font-bold retro-font tracking-widest">● ONLINE</span>`
                      : `<span class="text-[9px] text-[#004411] retro-font tracking-widest">○ OFFLINE</span>`,
     ].filter(Boolean).join('');
 
-    const actions = `
+    const actions = isProtected
+        ? `<span class="text-[9px] text-[#004411] retro-font tracking-widest">PROTECTED</span>`
+        : `
         <div class="flex gap-2 flex-wrap">
             ${userIsMuted
                 ? `<button class="admin-action-btn unmute" onclick="adminUnmute('${uid}','${escapeHtml(user.callsign || '')}')">UNMUTE</button>`
-                : `<button class="admin-action-btn mute"   onclick="adminMute('${uid}','${escapeHtml(user.callsign || '')}')">MUTE</button>`
+                : `<button class="admin-action-btn mute"   onclick="adminMute('${uid}','${escapeHtml(user.callsign || '')}','${userRole}')">MUTE</button>`
             }
             ${userIsBanned
                 ? `<button class="admin-action-btn unban" onclick="adminUnban('${uid}','${escapeHtml(user.callsign || '')}')">UNBAN</button>`
-                : `<button class="admin-action-btn ban"   onclick="adminBan('${uid}','${escapeHtml(user.callsign || '')}')">BAN</button>`
+                : `<button class="admin-action-btn ban"   onclick="adminBan('${uid}','${escapeHtml(user.callsign || '')}','${userRole}')">BAN</button>`
             }
-            ${userIsAdmin
+            ${isAdmin ? (
+                userIsAdmin || userIsMod
                 ? `<button class="admin-action-btn demote"  onclick="adminDemote('${uid}','${escapeHtml(user.callsign || '')}')">DEMOTE</button>`
                 : `<button class="admin-action-btn promote" onclick="adminPromote('${uid}','${escapeHtml(user.callsign || '')}')">PROMOTE</button>`
-            }
+            ) : ''}
         </div>
     `;
 
@@ -1577,56 +1625,82 @@ async function refreshAdminRow(uid) {
 // =====================================================
 //  ADMIN ACTIONS
 // =====================================================
-async function adminMute(uid, callsign) {
-    if (!isAdmin) return;
-    sysConfirm({ title: "MUTE OPERATOR", msg: `Silence ${callsign}? They will be unable to send messages.`, confirmText: "MUTE", danger: true, onConfirm: async () => {
-    await db.ref(`users/${uid}`).update({ muted: true });
-    writeAdminLog('MUTE', callsign);
+async function adminMute(uid, callsign, targetRole) {
+    if (!isAdmin && !isMod) return;
+    // Mods cannot mute admins or other mods
+    if (isMod && !isAdmin && (targetRole === 'admin' || targetRole === 'moderator')) {
+        sysToast('INSUFFICIENT CLEARANCE — cannot mute this operator', 'error'); return;
+    }
+    sysConfirm({ title: "MUTE OPERATOR", msg: `Silence ${callsign}? They will be unable to send messages or use the mic.`, confirmText: "MUTE", danger: true, onConfirm: async () => {
+        await db.ref(`users/${uid}`).update({ muted: true });
+        // Also remove them from any active voice room so mic is killed server-side
+        const vcSnap = await db.ref('voice-rooms').once('value');
+        vcSnap.forEach(room => {
+            if (room.child(uid).exists()) {
+                db.ref(`voice-rooms/${room.key}/${uid}`).remove().catch(() => {});
+            }
+        });
+        writeAdminLog('MUTE', callsign);
         refreshAdminRow(uid);
     } });
 }
 
 async function adminUnmute(uid, callsign) {
-    if (!isAdmin) return;
+    if (!isAdmin && !isMod) return;
     sysConfirm({ title: "RESTORE SIGNAL", msg: `Restore transmission rights to ${callsign}?`, confirmText: "UNMUTE", onConfirm: async () => {
-    await db.ref(`users/${uid}`).update({ muted: false });
-    writeAdminLog('UNMUTE', callsign);
+        await db.ref(`users/${uid}`).update({ muted: false });
+        writeAdminLog('UNMUTE', callsign);
         refreshAdminRow(uid);
     } });
 }
 
-async function adminBan(uid, callsign) {
-    if (!isAdmin) return;
+async function adminBan(uid, callsign, targetRole) {
+    if (!isAdmin && !isMod) return;
+    // Mods cannot ban admins or other mods
+    if (isMod && !isAdmin && (targetRole === 'admin' || targetRole === 'moderator')) {
+        sysToast('INSUFFICIENT CLEARANCE — cannot ban this operator', 'error'); return;
+    }
     sysConfirm({ title: "TERMINATE ACCESS", msg: `Ban ${callsign}? They will be signed out immediately and blocked from re-entering.`, confirmText: "BAN", danger: true, onConfirm: async () => {
-    await db.ref(`users/${uid}`).update({ banned: true, online: false });
-    writeAdminLog('BAN', callsign);
+        // Set banned flag — their own banned listener will sign them out in real-time
+        await db.ref(`users/${uid}`).update({ banned: true, online: false });
+        // Also evict from any active voice room
+        const vcSnap = await db.ref('voice-rooms').once('value');
+        vcSnap.forEach(room => {
+            if (room.child(uid).exists()) {
+                db.ref(`voice-rooms/${room.key}/${uid}`).remove().catch(() => {});
+            }
+        });
+        writeAdminLog('BAN', callsign);
         refreshAdminRow(uid);
     } });
 }
 
 async function adminUnban(uid, callsign) {
-    if (!isAdmin) return;
+    if (!isAdmin && !isMod) return;
     sysConfirm({ title: "RESTORE ACCESS", msg: `Unban ${callsign}? They will be able to sign in again.`, confirmText: "UNBAN", onConfirm: async () => {
-    await db.ref(`users/${uid}`).update({ banned: false });
-    writeAdminLog('UNBAN', callsign);
+        await db.ref(`users/${uid}`).update({ banned: false });
+        writeAdminLog('UNBAN', callsign);
         refreshAdminRow(uid);
     } });
 }
 
 async function adminPromote(uid, callsign) {
-    if (!isAdmin) return;
-    sysConfirm({ title: "PROMOTE OPERATOR", msg: `Promote ${callsign} to ADMIN? They will gain full operator privileges.`, confirmText: "PROMOTE", onConfirm: async () => {
-    await db.ref(`users/${uid}`).update({ role: 'admin' });
-    writeAdminLog('PROMOTE', callsign, '→ ADMIN');
+    // Only full admins can promote — mods cannot
+    if (!isAdmin) {
+        sysToast('INSUFFICIENT CLEARANCE — only admins can promote operators', 'error'); return;
+    }
+    sysConfirm({ title: "PROMOTE OPERATOR", msg: `Promote ${callsign} to MODERATOR? They can mute, ban, and delete messages but cannot promote others.`, confirmText: "PROMOTE", onConfirm: async () => {
+        await db.ref(`users/${uid}`).update({ role: 'moderator' });
+        writeAdminLog('PROMOTE', callsign, '→ MODERATOR');
         refreshAdminRow(uid);
     } });
 }
 
 async function adminDemote(uid, callsign) {
     if (!isAdmin) return;
-    sysConfirm({ title: "DEMOTE OPERATOR", msg: `Remove admin privileges from ${callsign}?`, confirmText: "DEMOTE", danger: true, onConfirm: async () => {
-    await db.ref(`users/${uid}`).update({ role: 'member' });
-    writeAdminLog('DEMOTE', callsign, '→ MEMBER');
+    sysConfirm({ title: "DEMOTE OPERATOR", msg: `Remove moderator privileges from ${callsign}?`, confirmText: "DEMOTE", danger: true, onConfirm: async () => {
+        await db.ref(`users/${uid}`).update({ role: 'member' });
+        writeAdminLog('DEMOTE', callsign, '→ MEMBER');
         refreshAdminRow(uid);
     } });
 }
@@ -2770,18 +2844,15 @@ async function processMessageEmbeds(msgId, rawText) {
  *  - always shows a "Watch on YouTube" link
  */
 function renderYouTubeEmbed(container, url, videoId) {
-    // Use enablejsapi=1 so YouTube sends postMessage error events
-    const embedSrc  = `https://www.youtube.com/embed/${videoId}?autoplay=0&enablejsapi=1`;
-    const thumbUrl  = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
-    const openUrl   = escapeHtml(url);
-    let   swapped   = false;
+    const thumbUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+    const embedSrc = `https://www.youtube.com/embed/${videoId}?autoplay=0`;
+    const openUrl  = escapeHtml(url);
 
     const card = document.createElement('div');
     card.className = 'embed-card';
     card.style.borderLeftColor = '#ff0000';
 
-    // Render iframe + hidden thumb side by side in DOM
-    // swapToThumb() replaces the iframe wrap with the thumb in-place
+    // Build with both iframe and thumbnail fallback layered
     card.innerHTML = `
         <div class="embed-header">
             <img src="https://www.google.com/s2/favicons?domain=youtube.com&sz=32" class="embed-favicon">
@@ -2793,17 +2864,22 @@ function renderYouTubeEmbed(container, url, videoId) {
                 frameborder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowfullscreen
-                class="embed-video-iframe">
+                class="embed-video-iframe"
+                onerror="document.getElementById('yt-wrap-${videoId}').innerHTML=document.getElementById('yt-thumb-${videoId}').outerHTML">
             </iframe>
         </div>
-        <div id="yt-thumb-${videoId}" style="display:none;cursor:pointer;position:relative;">
-            <img src="${thumbUrl}" style="width:100%;border:1px solid #333;display:block;"
-                 onerror="this.style.display='none'">
-            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-                        background:rgba(0,0,0,0.75);border-radius:50%;width:56px;height:56px;
-                        display:flex;align-items:center;justify-content:center;pointer-events:none;">
-                <span style="color:#fff;font-size:1.5rem;margin-left:4px;">▶</span>
-            </div>
+        <!-- Hidden thumbnail shown if iframe errors -->
+        <div id="yt-thumb-${videoId}" style="display:none">
+            <a href="${openUrl}" target="_blank" rel="noopener"
+               onclick="event.preventDefault();if(window.electronAPI)window.electronAPI.openExternal('${openUrl}');else window.open('${openUrl}','_blank')"
+               style="display:block;position:relative;cursor:pointer;">
+                <img src="${thumbUrl}" style="width:100%;border:1px solid #333;" onerror="this.style.display='none'">
+                <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                            background:rgba(0,0,0,0.75);border-radius:50%;width:56px;height:56px;
+                            display:flex;align-items:center;justify-content:center;">
+                    <span style="color:#fff;font-size:1.5rem;margin-left:4px;">▶</span>
+                </div>
+            </a>
         </div>
         <a href="${openUrl}" target="_blank" rel="noopener" class="embed-title"
             onclick="event.preventDefault();if(window.electronAPI)window.electronAPI.openExternal('${openUrl}');else window.open('${openUrl}','_blank')">
@@ -2811,48 +2887,47 @@ function renderYouTubeEmbed(container, url, videoId) {
         </a>
     `;
 
-    function swapToThumb() {
-        if (swapped) return;
-        swapped = true;
-        const wrap  = document.getElementById(`yt-wrap-${videoId}`);
-        const thumb = document.getElementById(`yt-thumb-${videoId}`);
-        if (!wrap || !thumb) return;
-        wrap.style.display  = 'none';       // hide iframe
-        thumb.style.display = 'block';      // show thumbnail
-        // Make thumbnail click open YouTube
-        thumb.onclick = () => {
-            if (window.electronAPI) window.electronAPI.openExternal(url);
-            else window.open(url, '_blank');
+    // If the iframe fires an error event, swap to thumbnail
+    // (onerror on iframe is unreliable — use message listener instead)
+    const iframe = card.querySelector('iframe');
+    if (iframe) {
+        // YouTube posts a message when playback is blocked
+        const handler = (e) => {
+            if (typeof e.data !== 'object') return;
+            if (e.data.event === 'infoDelivery' && e.data.info && e.data.info.errorCode) {
+                swapToThumb();
+                window.removeEventListener('message', handler);
+            }
         };
-        window.removeEventListener('message', ytMsgHandler);
+        window.addEventListener('message', handler);
+
+        // Also swap after a short delay if the iframe src returns an error page
+        // by checking if it loaded a blank/error page via load event
+        iframe.addEventListener('load', () => {
+            try {
+                // If contentDocument is accessible and empty it's an error page
+                if (iframe.contentDocument && iframe.contentDocument.title &&
+                    iframe.contentDocument.title.toLowerCase().includes('error')) {
+                    swapToThumb();
+                }
+            } catch(e) { /* cross-origin, expected */ }
+        });
     }
 
-    // YouTube sends error codes via postMessage when embedding is blocked.
-    // Data arrives as a JSON STRING — must parse it first.
-    // Error codes: 2=invalid id, 5=html5 error, 100=not found,
-    //              101/150=embed disabled by owner, 153=domain blocked
-    function ytMsgHandler(e) {
-        if (!e.data) return;
-        try {
-            const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-            if (!msg || msg.event !== 'infoDelivery') return;
-            const code = msg.info && msg.info.errorCode;
-            if (code === 2 || code === 5 || code === 100 || code === 101 || code === 150 || code === 153) {
-                swapToThumb();
-            }
-        } catch (err) { /* unrelated postMessage, ignore */ }
+    function swapToThumb() {
+        const wrap  = card.querySelector(`#yt-wrap-${videoId}`);
+        const thumb = card.querySelector(`#yt-thumb-${videoId}`);
+        if (wrap && thumb) {
+            wrap.innerHTML = thumb.outerHTML;
+            thumb.remove();
+        }
     }
-    window.addEventListener('message', ytMsgHandler);
 
     const dismiss = document.createElement('button');
     dismiss.className = 'embed-dismiss';
     dismiss.innerHTML = '✕';
     dismiss.title = 'Hide embed';
-    dismiss.onclick = (e) => {
-        e.stopPropagation();
-        window.removeEventListener('message', ytMsgHandler);
-        card.remove();
-    };
+    dismiss.onclick = (e) => { e.stopPropagation(); card.remove(); };
     card.appendChild(dismiss);
     container.appendChild(card);
 }
@@ -2906,50 +2981,10 @@ function renderDirectImage(container, url) {
     container.appendChild(card);
 }
 
-/**
- * Static card for X / Twitter — works identically in browser and Electron.
- * X blocks all CORS proxies and Electron fetches return bot-detection HTML,
- * so we skip the fetch entirely and build from the URL alone.
- */
-function renderXCard(container, url) {
-    const openUrl   = escapeHtml(url);
-    const postMatch = url.match(/(?:x\.com|twitter\.com)\/([^/?#]+)\/status\/(\d+)/);
-    const username  = postMatch ? '@' + postMatch[1] : 'X / Twitter';
-
-    const card = document.createElement('div');
-    card.className = 'embed-card';
-    card.style.borderLeftColor = '#1d9bf0';
-    card.innerHTML = `
-        <div class="embed-header">
-            <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:#1d9bf0;flex-shrink:0;">
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-            </svg>
-            <span class="embed-site-name" style="color:#1d9bf0;">${escapeHtml(username)}</span>
-        </div>
-        <a href="${openUrl}" target="_blank" rel="noopener" class="embed-title"
-            onclick="event.preventDefault();if(window.electronAPI)window.electronAPI.openExternal('${openUrl}');else window.open('${openUrl}','_blank')">
-            View post on X ↗
-        </a>
-    `;
-    const dismiss = document.createElement('button');
-    dismiss.className = 'embed-dismiss';
-    dismiss.innerHTML = '✕';
-    dismiss.onclick = (e) => { e.stopPropagation(); card.remove(); };
-    card.appendChild(dismiss);
-    container.appendChild(card);
-}
-
 /** Fetch OG metadata and render an embed card */
 async function fetchAndRenderEmbed(msgId, url) {
     const container = document.getElementById(`embeds-${msgId}`);
     if (!container) return;
-
-    // X.com / Twitter: blocks all fetches — render static card directly
-    const _host = extractDomain(url).toLowerCase();
-    if (_host.includes('x.com') || _host.includes('twitter.com')) {
-        renderXCard(container, url);
-        return;
-    }
 
     let data = _embedCache[url];
     if (!data) {

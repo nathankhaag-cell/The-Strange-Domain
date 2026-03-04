@@ -822,6 +822,7 @@
         }
         .admin-user-row:hover { border-color: #4a3a00; }
         .admin-user-row.is-admin { border-color: rgba(202,138,4,0.3); background: rgba(202,138,4,0.03); }
+        .admin-user-row.is-mod   { border-color: rgba(124,58,237,0.25); background: rgba(124,58,237,0.03); }
         .admin-user-row.is-muted  { border-color: rgba(220,38,38,0.25); background: rgba(220,38,38,0.03); }
         .admin-user-row.is-banned { border-color: rgba(127,0,0,0.4); background: rgba(127,0,0,0.05); opacity: 0.6; }
 
@@ -858,8 +859,12 @@
             text-transform: uppercase;
         }
         .admin-badge.admin  { border: 1px solid #ca8a04; color: #ca8a04; }
+        .admin-badge.mod    { border: 1px solid #7c3aed; color: #a78bfa; }
         .admin-badge.muted  { border: 1px solid #7f1d1d; color: #ef4444; }
         .admin-badge.banned { border: 1px solid #450a0a; color: #7f1d1d; }
+
+        .admin-user-row.is-mod { border-color: rgba(124,58,237,0.25); background: rgba(124,58,237,0.03); }
+        .admin-action-btn.mod-del { border-color: #4c1d95; color: #a78bfa; }
 
         /* Admin controls on messages */
         .admin-msg-delete {
