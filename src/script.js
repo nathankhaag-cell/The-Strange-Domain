@@ -2872,17 +2872,41 @@ async function fetchAndRenderEmbed(msgId, url) {
     }
 }
 
-/** Browser fallback: use allorigins CORS proxy */
+/** Browser fallback: try multiple CORS proxies in sequence until one works */
 async function fetchLinkPreviewBrowser(url) {
-    try {
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-        const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(6000) });
-        if (!resp.ok) return null;
-        const html = await resp.text();
-        return parseLinkPreviewHtml(html, url);
-    } catch (e) {
-        return null;
+    // Proxy list — tried in order, first success wins
+    const proxies = [
+        // allorigins /raw — returns raw HTML directly
+        () => fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(6000) })
+              .then(r => r.ok ? r.text() : Promise.reject()),
+
+        // allorigins /get — returns JSON wrapper, pull .contents
+        () => fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(6000) })
+              .then(r => r.ok ? r.json() : Promise.reject())
+              .then(j => j.contents || Promise.reject()),
+
+        // corsproxy.io
+        () => fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(6000) })
+              .then(r => r.ok ? r.text() : Promise.reject()),
+
+        // cors-anywhere hosted fallback
+        () => fetch(`https://cors-anywhere.herokuapp.com/${url}`, {
+                signal: AbortSignal.timeout(6000),
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+              }).then(r => r.ok ? r.text() : Promise.reject()),
+    ];
+
+    for (const attempt of proxies) {
+        try {
+            const html = await attempt();
+            if (!html || typeof html !== 'string') continue;
+            const result = parseLinkPreviewHtml(html, url);
+            if (result) return result;  // got usable data, stop trying
+        } catch (e) {
+            // This proxy failed — try the next one
+        }
     }
+    return null;  // all proxies exhausted
 }
 
 function parseLinkPreviewHtml(html, sourceUrl) {
