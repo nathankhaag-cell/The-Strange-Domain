@@ -200,8 +200,9 @@ function createMainWindow() {
 
         // Spell suggestions (only when a misspelled word is selected)
         if (params.misspelledWord) {
-            if (params.dictionaryWordSuggestions.length > 0) {
-                params.dictionaryWordSuggestions.slice(0, 5).forEach(suggestion => {
+            const suggestions = params.dictionaryWordSuggestions || [];
+            if (suggestions.length > 0) {
+                suggestions.slice(0, 5).forEach(suggestion => {
                     menuTemplate.push({
                         label: suggestion,
                         click: () => mainWindow.webContents.replaceMisspelling(suggestion)
