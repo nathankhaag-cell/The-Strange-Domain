@@ -973,15 +973,24 @@ function initEmojiPicker() {
 
 function showEmojiPicker(msgId, btn) {
     const picker = document.getElementById("emoji-picker");
-    const rect   = btn.getBoundingClientRect();
     picker.dataset.targetMsgId = msgId;
 
-    // Show offscreen first to measure actual rendered width
+    // Mobile: CSS pins picker to bottom of screen — skip JS positioning entirely
+    if (window.innerWidth <= 767) {
+        picker.style.left   = '';
+        picker.style.top    = '';
+        picker.style.bottom = '';
+        picker.classList.remove("hidden");
+        return;
+    }
+
+    // Desktop: measure then center under button, clamped within viewport
     picker.style.visibility = 'hidden';
     picker.style.left = '0px';
     picker.style.top  = '0px';
     picker.classList.remove("hidden");
 
+    const rect    = btn.getBoundingClientRect();
     const pickerW = picker.offsetWidth;
     const pickerH = picker.offsetHeight;
     const margin  = 8;
@@ -992,12 +1001,12 @@ function showEmojiPicker(msgId, btn) {
     let left = rect.left + (rect.width / 2) - (pickerW / 2);
     left = Math.max(margin, Math.min(left, vw - pickerW - margin));
 
-    // Prefer below the button, flip above if not enough room
+    // Prefer below, flip above if not enough room
     let top = rect.bottom + 4;
     if (top + pickerH > vh - margin) top = rect.top - pickerH - 4;
 
-    picker.style.left = `${left}px`;
-    picker.style.top  = `${top}px`;
+    picker.style.left       = `${left}px`;
+    picker.style.top        = `${top}px`;
     picker.style.visibility = '';
 }
 
