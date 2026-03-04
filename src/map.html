@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UPLINK MAP — The Strange Domain</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+
+    <style>
+        html,body{height:100%;margin:0;background:#0a0a0a;color:#00ff41;font-family:'VT323',monospace;overflow:hidden;}
+        #globe-wrap{position:relative;width:100%;height:100%;cursor:grab;}
+        #globe-wrap:active{cursor:grabbing;}
+        #globe-canvas{display:block;width:100%;height:100%;}
+        #globe-wrap::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:10;background:repeating-linear-gradient(to bottom,transparent 0px,transparent 3px,rgba(0,0,0,0.14) 3px,rgba(0,0,0,0.14) 4px);}
+        #globe-wrap::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:11;background:radial-gradient(ellipse at center,transparent 45%,rgba(0,0,0,0.75) 100%);}
+        #tooltip{position:fixed;z-index:200;background:#050505;border:1px solid #00ff41;padding:5px 12px;font-family:'VT323',monospace;font-size:1rem;color:#00ff41;pointer-events:none;white-space:nowrap;box-shadow:0 0 12px rgba(0,255,65,0.2);display:none;}
+        #signal-count{position:absolute;top:1rem;right:1.5rem;z-index:20;text-align:right;}
+        #coords-readout{position:absolute;bottom:1.2rem;left:50%;transform:translateX(-50%);z-index:20;font-size:.82rem;color:#007a2a;letter-spacing:2px;text-align:center;}
+        #drag-hint{position:absolute;bottom:2.8rem;left:50%;transform:translateX(-50%);z-index:20;font-size:.72rem;color:#004411;letter-spacing:3px;animation:hint-fade 7s ease forwards;}
+        @keyframes hint-fade{0%{opacity:.9}70%{opacity:.9}100%{opacity:0}}
+        @keyframes boot-flicker{0%{opacity:0}10%{opacity:.9}12%{opacity:.2}14%{opacity:.9}100%{opacity:1}}
+        #page-root{animation:boot-flicker .6s ease forwards;}
+        @keyframes ping-ring{0%{transform:scale(.5);opacity:.9}100%{transform:scale(3.5);opacity:0}}
+        .ping-svg-ring{animation:ping-ring 2s ease-out infinite;}
+        @keyframes blip{0%,100%{opacity:1}50%{opacity:.3}}
+        .blip{animation:blip 1.2s step-end infinite;}
+        #loading-overlay{position:absolute;inset:0;z-index:50;background:#0a0a0a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;}
+        #loading-overlay.hidden{display:none;}
+        #loading-bar-wrap{width:260px;border:1px solid #007a2a;height:6px;}
+        #loading-bar{height:100%;background:#00ff41;width:0;transition:width .2s;box-shadow:0 0 8px #00ff41;}
+    </style>
+</head>
+<body>
+<div id="page-root" class="flex flex-col h-screen">
+
+    <header class="crt h-16 bg-zinc-950 border-b border-[#00ff41] flex items-center pl-4 md:pl-8 pr-[140px] z-50 flex-shrink-0" style="-webkit-app-region:drag;">
+        <div class="flex items-center gap-4">
+            <div class="hidden sm:flex w-9 h-9 bg-[#00ff41] text-black items-center justify-center text-2xl font-bold retro-font border-2 border-black">74</div>
+            <div>
+                <div class="text-2xl md:text-4xl leading-none retro-font tracking-[4px] md:tracking-[6px] terminal-glow">THE STRANGE DOMAIN</div>
+                <div class="text-[9px] text-[#007a2a] -mt-1 pl-1 uppercase font-bold">S GRADE ANOMALY • 1974 • NON-EUCLIDEAN SPACE</div>
+            </div>
+        </div>
+        <div class="flex-1"></div>
+        <div class="flex items-center gap-3 md:gap-4" style="-webkit-app-region:no-drag;">
+            <a href="index.html" class="px-3 py-1 md:px-4 md:py-1.5 border border-[#007a2a] hover:border-[#00ff41] text-[#007a2a] hover:text-[#00ff41] text-[10px] md:text-sm retro-font transition-all tracking-widest">◄ RELAY</a>
+            <span class="px-3 py-1 md:px-4 md:py-1.5 border border-[#00ff41] text-[#00ff41] text-[10px] md:text-sm retro-font tracking-widest">◈ UPLINK MAP</span>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        <div id="globe-wrap" class="flex-1 relative">
+            <canvas id="globe-canvas"></canvas>
+            <div id="loading-overlay">
+                <div class="retro-font text-[#00ff41] text-xl tracking-widest terminal-glow">LOADING CARTOGRAPHIC DATA...</div>
+                <div id="loading-bar-wrap"><div id="loading-bar"></div></div>
+                <div id="loading-status" class="text-[9px] text-[#007a2a] tracking-widest uppercase">INITIALISING</div>
+            </div>
+            <svg id="ping-layer" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:15;" xmlns="http://www.w3.org/2000/svg"></svg>
+
+            <!-- Mobile signal count pill -->
+            <div id="mobile-map-pill" style="display:none;"
+                 class="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex gap-2">
+                <button onclick="toggleMobileMapPanel()"
+                        class="retro-font text-[9px] uppercase tracking-widest border border-[#007a2a] hover:border-[#00ff41] px-3 py-1 bg-[#050505] text-[#007a2a] hover:text-[#00ff41] transition-all">
+                    <i class="fas fa-list mr-1"></i>AGENTS
+                </button>
+            </div>
+
+            <!-- Mobile agent overlay -->
+            <div id="mobile-map-agents"
+                 class="hidden absolute inset-0 z-30 flex flex-col"
+                 style="background:#0a0a0aee;">
+                <div class="flex items-center justify-between px-4 py-3 border-b border-[#007a2a] flex-shrink-0">
+                    <span class="retro-font text-[#00ff41] tracking-widest uppercase text-sm">Agent Registry</span>
+                    <button onclick="toggleMobileMapPanel()" class="text-[#007a2a] hover:text-[#00ff41] retro-font text-2xl">✕</button>
+                </div>
+                <div id="mobile-signal-list" class="flex-1 overflow-y-auto px-3 py-3 space-y-1"></div>
+                <div class="px-4 py-2 border-t border-[#007a2a] flex-shrink-0">
+                    <div class="text-[8px] text-[#004411] tracking-widest uppercase"><span class="blip">●</span> LIVE FEED</div>
+                </div>
+            </div>
+            <div id="signal-count" class="retro-font">
+                <div class="text-[9px] text-[#007a2a] tracking-widest uppercase">Active Pings</div>
+                <div id="signal-num" class="text-3xl text-[#00ff41] terminal-glow leading-none">—</div>
+            </div>
+            <div id="drag-hint">[ DRAG TO ROTATE · SCROLL TO ZOOM ]</div>
+            <div id="coords-readout">LAT —  LON —</div>
+        </div>
+
+        <div class="crt hidden lg:flex w-72 bg-zinc-950 border-l border-[#00ff41] flex-col flex-shrink-0 map-agent-panel">
+            <div class="px-5 py-3 border-b border-[#007a2a]">
+                <div class="text-[9px] text-[#007a2a] tracking-[3px] uppercase font-bold">Agent Registry</div>
+            </div>
+            <div id="signal-list" class="flex-1 overflow-y-auto px-3 py-3 space-y-1">
+                <div class="text-[#007a2a] retro-font text-xs tracking-widest px-2 py-4">SCANNING...</div>
+            </div>
+            <div class="px-5 py-3 border-t border-[#007a2a]">
+                <div class="text-[8px] text-[#004411] tracking-widest uppercase"><span class="blip">●</span> LIVE FEED · FIREBASE RTDB</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="tooltip"></div>
+</div>
+
+<script>
+// ── Firebase ─────────────────────────────────────────
+const firebaseConfig = {
+    apiKey:"AIzaSyCJ7NMgvML-RAUNgMDlrKMrnBV9bg8PqIs",
+    authDomain:"the-strange-domain.firebaseapp.com",
+    databaseURL:"https://the-strange-domain-default-rtdb.firebaseio.com",
+    projectId:"the-strange-domain",
+    storageBucket:"the-strange-domain.firebasestorage.app",
+    messagingSenderId:"906271570951",
+    appId:"1:906271570951:web:8a0a8ca899a8cd962dbea2"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.database();
+auth.onAuthStateChanged(u => {
+    if (!u) { window.location.replace('login.html'); return; }
+    // Re-establish online presence for this page session.
+    // Without this, navigating here from index.html leaves online=false
+    // because index.html's onDisconnect fires when that page unloads.
+    const onlineRef = db.ref(`users/${u.uid}/online`);
+    db.ref('.info/connected').on('value', snap => {
+        if (snap.val() === true) {
+            onlineRef.onDisconnect().set(false);
+            onlineRef.set(true);
+        }
+    });
+});
+
+// ── Settings ─────────────────────────────────────────
+const GLOBE_R   = 0.84;     // fraction of min(w,h)/2 — larger
+const ROT_SPEED = 0.00022;  // radians/ms — slow drift
+const FONT_SIZE = 8;        // smaller = higher density / resolution
+const FONT_W    = FONT_SIZE * 0.56;
+const FONT_H    = FONT_SIZE;
+const RAMP      = ' .·:;+=xX$#@';
+
+// ── State ─────────────────────────────────────────────
+let rotLon = -0.3, rotLat = 0.22;
+let autoRot = true;
+let dragging = false, dragStartX = 0, dragStartY = 0, dragLon = 0, dragLat = 0;
+let zoom = 1.0, lastTime = null;
+let signals = [], pingOffsets = {};
+
+// Land bitmap
+let LAND_BITMAP = null, BITMAP_ROWS = 0, BITMAP_COLS = 0;
+const BITMAP_STEP = 0.4; // degrees — high resolution
+
+// Country labels
+let COUNTRY_LABELS = [];
+
+const canvas = document.getElementById('globe-canvas');
+const ctx    = canvas.getContext('2d');
+
+function resize() {
+    const w = document.getElementById('globe-wrap');
+    canvas.width = w.clientWidth; canvas.height = w.clientHeight;
+}
+window.addEventListener('resize', resize); resize();
+
+// ── Loading ───────────────────────────────────────────
+function setProgress(pct, msg) {
+    document.getElementById('loading-bar').style.width = pct + '%';
+    document.getElementById('loading-status').textContent = msg;
+}
+
+function loadScript(src) {
+    return new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = src; s.onload = res; s.onerror = rej;
+        document.head.appendChild(s);
+    });
+}
+
+async function loadGeoData() {
+    setProgress(8,  'FETCHING LAND POLYGONS');
+    const [landRes, countriesRes] = await Promise.all([
+        fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json'),
+        fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
+    ]);
+    setProgress(35, 'PARSING TOPOLOGY');
+    const [landTopo, countriesTopo] = await Promise.all([landRes.json(), countriesRes.json()]);
+
+    setProgress(50, 'LOADING TOPOLOGY ENGINE');
+    await loadScript('https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js');
+
+    const landGeo      = topojson.feature(landTopo,      landTopo.objects.land);
+    const countriesGeo = topojson.feature(countriesTopo, countriesTopo.objects.countries);
+
+    setProgress(60, 'RASTERISING LAND MASK');
+    await rasteriseLand(landGeo);
+
+    setProgress(85, 'COMPUTING COUNTRY LABELS');
+    buildCountryLabels(countriesGeo);
+
+    setProgress(98, 'CALIBRATING DISPLAY');
+    await new Promise(r => setTimeout(r, 250));
+    setProgress(100, 'UPLINK ESTABLISHED');
+    await new Promise(r => setTimeout(r, 300));
+    document.getElementById('loading-overlay').classList.add('hidden');
+}
+
+// ── Rasterise GeoJSON into bitmap ─────────────────────
+// Chunked with yielding so the browser doesn't freeze
+async function rasteriseLand(landGeo) {
+    BITMAP_ROWS = Math.round(180 / BITMAP_STEP) + 1;
+    BITMAP_COLS = Math.round(360 / BITMAP_STEP) + 1;
+    LAND_BITMAP = new Uint8Array(BITMAP_ROWS * BITMAP_COLS);
+    const features = landGeo.features || [landGeo];
+    const CHUNK = 20;
+    for (let ri = 0; ri < BITMAP_ROWS; ri++) {
+        if (ri % CHUNK === 0) {
+            setProgress(60 + Math.round((ri / BITMAP_ROWS) * 22), 'RASTERISING LAND MASK');
+            await new Promise(r => setTimeout(r, 0)); // yield
+        }
+        const lat = 90 - ri * BITMAP_STEP;
+        for (let ci = 0; ci < BITMAP_COLS; ci++) {
+            const lon = -180 + ci * BITMAP_STEP;
+            if (pointInGeoJSON(features, lon, lat)) {
+                LAND_BITMAP[ri * BITMAP_COLS + ci] = 1;
+            }
+        }
+    }
+}
+
+function isLandLatLon(lat, lon) {
+    if (!LAND_BITMAP) return false;
+    let ri = Math.round((90 - lat) / BITMAP_STEP);
+    let ci = Math.round((lon + 180) / BITMAP_STEP);
+    ri = Math.max(0, Math.min(BITMAP_ROWS - 1, ri));
+    ci = Math.max(0, Math.min(BITMAP_COLS - 1, ci));
+    return LAND_BITMAP[ri * BITMAP_COLS + ci] === 1;
+}
+
+function pointInGeoJSON(features, lon, lat) {
+    for (const feat of features) {
+        const g = feat.geometry || feat;
+        if (!g) continue;
+        if (g.type === 'Polygon'      && pointInPolygon(lon, lat, g.coordinates))   return true;
+        if (g.type === 'MultiPolygon') {
+            for (const p of g.coordinates) if (pointInPolygon(lon, lat, p)) return true;
+        }
+    }
+    return false;
+}
+function pointInPolygon(x, y, rings) {
+    if (!raycast(x, y, rings[0])) return false;
+    for (let i = 1; i < rings.length; i++) if (raycast(x, y, rings[i])) return false;
+    return true;
+}
+function raycast(x, y, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length-1; i < ring.length; j = i++) {
+        const [xi,yi] = ring[i], [xj,yj] = ring[j];
+        if (((yi>y) !== (yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi)) inside = !inside;
+    }
+    return inside;
+}
+
+// ── Country labels ─────────────────────────────────────
+const COUNTRY_NAMES = {
+    '004':'AFGHANISTAN','008':'ALBANIA','012':'ALGERIA','024':'ANGOLA','032':'ARGENTINA',
+    '036':'AUSTRALIA','040':'AUSTRIA','050':'BANGLADESH','056':'BELGIUM','068':'BOLIVIA',
+    '076':'BRAZIL','100':'BULGARIA','116':'CAMBODIA','120':'CAMEROON','124':'CANADA',
+    '152':'CHILE','156':'CHINA','170':'COLOMBIA','180':'D.R. CONGO','188':'COSTA RICA',
+    '191':'CROATIA','192':'CUBA','203':'CZECHIA','208':'DENMARK','218':'ECUADOR',
+    '818':'EGYPT','231':'ETHIOPIA','246':'FINLAND','250':'FRANCE','276':'GERMANY',
+    '288':'GHANA','300':'GREECE','320':'GUATEMALA','332':'HAITI','340':'HONDURAS',
+    '348':'HUNGARY','356':'INDIA','360':'INDONESIA','364':'IRAN','368':'IRAQ',
+    '372':'IRELAND','376':'ISRAEL','380':'ITALY','388':'JAMAICA','392':'JAPAN',
+    '400':'JORDAN','398':'KAZAKHSTAN','404':'KENYA','410':'S.KOREA','408':'N.KOREA',
+    '418':'LAOS','422':'LEBANON','430':'LIBERIA','434':'LIBYA','484':'MEXICO',
+    '496':'MONGOLIA','504':'MOROCCO','508':'MOZAMBIQUE','516':'NAMIBIA','524':'NEPAL',
+    '528':'NETHERLANDS','554':'NEW ZEALAND','566':'NIGERIA','578':'NORWAY','586':'PAKISTAN',
+    '591':'PANAMA','604':'PERU','608':'PHILIPPINES','616':'POLAND','620':'PORTUGAL',
+    '642':'ROMANIA','643':'RUSSIA','682':'SAUDI ARABIA','686':'SENEGAL',
+    '706':'SOMALIA','710':'S.AFRICA','724':'SPAIN','144':'SRI LANKA','729':'SUDAN',
+    '752':'SWEDEN','756':'SWITZERLAND','760':'SYRIA','158':'TAIWAN','764':'THAILAND',
+    '788':'TUNISIA','792':'TURKEY','800':'UGANDA','804':'UKRAINE','826':'UK',
+    '840':'USA','858':'URUGUAY','860':'UZBEKISTAN','862':'VENEZUELA','704':'VIETNAM',
+    '887':'YEMEN','894':'ZAMBIA','716':'ZIMBABWE','288':'GHANA','036':'AUSTRALIA',
+    '012':'ALGERIA','434':'LIBYA','729':'SUDAN','566':'NIGERIA','024':'ANGOLA',
+    '508':'MOZAMBIQUE','516':'NAMIBIA','404':'KENYA','800':'UGANDA','231':'ETHIOPIA'
+};
+
+function buildCountryLabels(countriesGeo) {
+    COUNTRY_LABELS = [];
+    const seen = new Set();
+    for (const feat of countriesGeo.features) {
+        const id   = String(feat.id).padStart(3,'0');
+        const name = COUNTRY_NAMES[id];
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        try {
+            const c = geomCentroid(feat.geometry);
+            if (isFinite(c.lat) && isFinite(c.lon)) {
+                COUNTRY_LABELS.push({ lat: c.lat, lon: c.lon, name });
+            }
+        } catch(e) {}
+    }
+}
+
+function geomCentroid(geom) {
+    let sumLat = 0, sumLon = 0, n = 0;
+    const addRing = ring => { for (const [lo,la] of ring) { sumLon+=lo; sumLat+=la; n++; } };
+    if (geom.type === 'Polygon') {
+        addRing(geom.coordinates[0]);
+    } else if (geom.type === 'MultiPolygon') {
+        let best = null, bestLen = 0;
+        for (const poly of geom.coordinates) if (poly[0].length > bestLen) { bestLen = poly[0].length; best = poly; }
+        if (best) addRing(best[0]);
+    }
+    if (!n) throw new Error('empty');
+    return { lat: sumLat/n, lon: sumLon/n };
+}
+
+// ── 3D Math ─────────────────────────────────────────────
+function latLonToXYZ(latD, lonD) {
+    const la = latD*Math.PI/180, lo = lonD*Math.PI/180;
+    return { x: Math.cos(la)*Math.cos(lo), y: Math.sin(la), z: Math.cos(la)*Math.sin(lo) };
+}
+function rotatePoint(p, lo, la) {
+    const x  = p.x*Math.cos(lo) - p.z*Math.sin(lo);
+    const z1 = p.x*Math.sin(lo) + p.z*Math.cos(lo);
+    const y  = p.y*Math.cos(la) - z1*Math.sin(la);
+    const z  = p.y*Math.sin(la) + z1*Math.cos(la);
+    return {x, y, z};
+}
+function unrotatePoint(p, lo, la) {
+    const y2 = p.y*Math.cos(-la) - p.z*Math.sin(-la);
+    const z2 = p.y*Math.sin(-la) + p.z*Math.cos(-la);
+    const x  = p.x*Math.cos(-lo) - z2*Math.sin(-lo);
+    const z  = p.x*Math.sin(-lo) + z2*Math.cos(-lo);
+    return {x, y:y2, z};
+}
+
+// ── Globe renderer ──────────────────────────────────────
+function drawGlobe(dt) {
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = '#050505'; ctx.fillRect(0,0,W,H);
+    if (!LAND_BITMAP) return;
+
+    const cx = W/2, cy = H/2;
+    const r  = Math.min(W,H)/2 * GLOBE_R * zoom;
+    if (autoRot) rotLon += ROT_SPEED * dt;
+
+    const charR  = Math.ceil(r/FONT_W) + 1;
+    const charVR = Math.ceil(r/FONT_H) + 1;
+    ctx.font = `${FONT_SIZE}px 'VT323',monospace`;
+    ctx.textBaseline = 'top';
+
+    for (let col = -charR; col <= charR; col++) {
+        for (let row = -charVR; row <= charVR; row++) {
+            const nx = -(col*FONT_W)/r, ny = -(row*FONT_H)/r;
+            const d2 = nx*nx + ny*ny;
+            if (d2 > 1) continue;
+            const nz = Math.sqrt(1-d2);
+
+            const pw   = unrotatePoint({x:nx,y:ny,z:nz}, rotLon, rotLat);
+            const wLat = Math.asin(Math.max(-1,Math.min(1,pw.y))) * 180/Math.PI;
+            const wLon = Math.atan2(pw.z, pw.x) * 180/Math.PI;
+            const land = isLandLatLon(wLat, wLon);
+
+            // Lighting: warm key from upper-right, cool ambient
+            const lx=0.55, ly=0.65, lz=0.5, lm=Math.sqrt(lx*lx+ly*ly+lz*lz);
+            const b = Math.max(0,(nx*lx+ny*ly+nz*lz)/lm);
+            const bF = b*0.87 + 0.13; // with ambient
+
+            let char, color;
+            if (land) {
+                const idx = Math.floor(bF*(RAMP.length-1));
+                char  = RAMP[Math.max(1,idx)];
+                const gv = Math.floor(30+bF*215);
+                const rv = Math.floor(bF*18);
+                color = `rgb(${rv},${gv},${Math.floor(gv*0.2)})`;
+            } else {
+                if (b < 0.07) continue;
+                const s = b*0.32;
+                char  = s>0.28?'·': s>0.16?'.': ' ';
+                if (char===' ') continue;
+                color = `rgba(0,${Math.floor(s*70)},${Math.floor(s*110)},0.5)`;
+            }
+            ctx.fillStyle = color;
+            ctx.fillText(char, cx+col*FONT_W, cy+row*FONT_H-FONT_H/2);
+        }
+    }
+
+    // Atmosphere glow
+    const grd = ctx.createRadialGradient(cx,cy,r*0.96,cx,cy,r*1.08);
+    grd.addColorStop(0,  'rgba(0,40,15,0)');
+    grd.addColorStop(.5, 'rgba(0,55,18,0.09)');
+    grd.addColorStop(1,  'rgba(0,0,0,0)');
+    ctx.beginPath(); ctx.arc(cx,cy,r*1.08,0,Math.PI*2);
+    ctx.fillStyle=grd; ctx.fill();
+
+    drawCountryLabels(cx, cy, r);
+    drawSignals(cx, cy, r);
+}
+
+function drawCountryLabels(cx, cy, r) {
+    ctx.textBaseline = 'middle';
+    ctx.textAlign    = 'center';
+    for (const lbl of COUNTRY_LABELS) {
+        const rot = rotatePoint(latLonToXYZ(lbl.lat, lbl.lon), rotLon, rotLat);
+        if (rot.z < 0.08) continue;
+        const alpha = Math.min(1,(rot.z-0.08)*4.5);
+        if (alpha < 0.04) continue;
+        ctx.globalAlpha = alpha * 0.52;
+        ctx.font        = `${FONT_SIZE}px 'VT323',monospace`;
+        ctx.fillStyle   = '#005520';
+        ctx.fillText(lbl.name, cx-rot.x*r, cy-rot.y*r);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign   = 'left';
+}
+
+function drawSignals(cx, cy, r) {
+    const svgEl = document.getElementById('ping-layer');
+    const W = canvas.width, H = canvas.height;
+    svgEl.innerHTML = '';
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign    = 'left';
+
+    signals.forEach(sig => {
+        const rot = rotatePoint(latLonToXYZ(sig.lat, sig.lon), rotLon, rotLat);
+        if (rot.z < 0) return;
+        const sx = cx-rot.x*r, sy = cy-rot.y*r;
+
+        ctx.beginPath(); ctx.arc(sx,sy,7,0,Math.PI*2);
+        ctx.fillStyle = sig.online?'rgba(0,255,65,0.12)':'rgba(200,0,0,0.1)'; ctx.fill();
+
+        ctx.beginPath(); ctx.arc(sx,sy,3,0,Math.PI*2);
+        ctx.fillStyle = sig.online?'#00ff41':'#7f0000'; ctx.fill();
+
+        ctx.strokeStyle = sig.online?'rgba(0,255,65,0.6)':'rgba(200,0,0,0.5)'; ctx.lineWidth=0.7;
+        ctx.beginPath(); ctx.moveTo(sx-9,sy); ctx.lineTo(sx+9,sy); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(sx,sy-9); ctx.lineTo(sx,sy+9); ctx.stroke();
+
+        ctx.font=`${FONT_SIZE+1}px 'VT323',monospace`;
+        ctx.fillStyle = sig.online?'#00ff41':'#7f0000';
+        ctx.fillText(sig.callsign.toUpperCase(), sx+10, sy-3);
+
+        if (sig.online) {
+            if (!pingOffsets[sig.uid]) pingOffsets[sig.uid]=Math.random()*2000;
+            const svgX=(sx/W*100).toFixed(2)+'%', svgY=(sy/H*100).toFixed(2)+'%';
+            const ring = document.createElementNS('http://www.w3.org/2000/svg','circle');
+            ring.setAttribute('cx',svgX); ring.setAttribute('cy',svgY);
+            ring.setAttribute('r','5'); ring.setAttribute('fill','none');
+            ring.setAttribute('stroke','#00ff41'); ring.setAttribute('stroke-width','1');
+            ring.classList.add('ping-svg-ring');
+            ring.style.animationDelay=`${-(pingOffsets[sig.uid]/1000)}s`;
+            ring.style.transformOrigin=`${svgX} ${svgY}`;
+            svgEl.appendChild(ring);
+        }
+    });
+}
+
+// ── Input ───────────────────────────────────────────────
+canvas.addEventListener('mousemove', e => {
+    const rect=canvas.getBoundingClientRect();
+    const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+    const cx=canvas.width/2, cy=canvas.height/2;
+    const r=Math.min(canvas.width,canvas.height)/2*GLOBE_R*zoom;
+    const nx=-(mx-cx)/r, ny=-(my-cy)/r;
+
+    if (nx*nx+ny*ny<=1) {
+        const nz=Math.sqrt(1-nx*nx-ny*ny);
+        const pw=unrotatePoint({x:nx,y:ny,z:nz},rotLon,rotLat);
+        const lat=(Math.asin(pw.y)*180/Math.PI).toFixed(1);
+        const lon=(Math.atan2(pw.z,pw.x)*180/Math.PI).toFixed(1);
+        document.getElementById('coords-readout').textContent=`LAT ${lat>0?'+':''}${lat}°  LON ${lon>0?'+':''}${lon}°`;
+    } else { document.getElementById('coords-readout').textContent='LAT —  LON —'; }
+
+    const tip=document.getElementById('tooltip'); let found=false;
+    signals.forEach(sig=>{
+        const rot=rotatePoint(latLonToXYZ(sig.lat,sig.lon),rotLon,rotLat);
+        if(rot.z<0)return;
+        const sx=cx-rot.x*r, sy=cy-rot.y*r;
+        if((mx-sx)**2+(my-sy)**2<22**2){
+            tip.style.display='block';
+            tip.style.left=(e.clientX+16)+'px';
+            tip.style.top=(e.clientY-10)+'px';
+            const loc=sig.city?`${sig.city}${sig.country?', '+sig.country:''}`:`${sig.lat.toFixed(1)}°, ${sig.lon.toFixed(1)}°`;
+            tip.innerHTML=`<span style="color:#007a2a">▸</span> ${esc(sig.callsign.toUpperCase())} <span style="color:#007a2a;font-size:.8rem">[${sig.online?'● ONLINE':'○ OFFLINE'}]</span><br><span style="color:#007a2a;font-size:.75rem">${esc(loc)}</span>`;
+            found=true;
+        }
+    });
+    if(!found)tip.style.display='none';
+
+    if(dragging){autoRot=false;rotLon=dragLon+(e.clientX-dragStartX)*0.007;rotLat=Math.max(-Math.PI/2.1,Math.min(Math.PI/2.1,dragLat+(e.clientY-dragStartY)*0.004));}
+});
+canvas.addEventListener('mousedown',e=>{dragging=true;dragStartX=e.clientX;dragStartY=e.clientY;dragLon=rotLon;dragLat=rotLat;});
+window.addEventListener('mouseup',()=>{if(dragging){dragging=false;setTimeout(()=>{autoRot=true;},3500);}});
+canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(0.5,Math.min(2.5,zoom-e.deltaY*0.001));},{passive:false});
+
+let touchStart=null,tDragLon=0,tDragLat=0;
+canvas.addEventListener('touchstart',e=>{if(e.touches.length===1){touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY};tDragLon=rotLon;tDragLat=rotLat;autoRot=false;}},{passive:true});
+canvas.addEventListener('touchmove',e=>{if(touchStart&&e.touches.length===1){rotLon=tDragLon+(e.touches[0].clientX-touchStart.x)*0.007;rotLat=Math.max(-Math.PI/2.1,Math.min(Math.PI/2.1,tDragLat+(e.touches[0].clientY-touchStart.y)*0.004));}},{passive:true});
+canvas.addEventListener('touchend',()=>{touchStart=null;setTimeout(()=>{autoRot=true;},3500);});
+
+// ── Loop ────────────────────────────────────────────────
+function loop(ts){const dt=lastTime?Math.min(ts-lastTime,50):16;lastTime=ts;drawGlobe(dt);requestAnimationFrame(loop);}
+requestAnimationFrame(loop);
+
+// ── Firebase signals ─────────────────────────────────────
+async function loadSignals(){
+    const snap=await db.ref('users').once('value');
+    const list=[];
+    snap.forEach(child=>{
+        const u=child.val(); if(!u)return;
+        const loc=u.location;
+        if(loc&&typeof loc.lat==='number'&&typeof loc.lon==='number'){
+            list.push({uid:child.key,callsign:u.callsign||'???',lat:loc.lat,lon:loc.lon,city:loc.city||'',country:loc.country||'',online:u.online===true});
+        } else if(u.callsign){
+            const h=[...child.key].reduce((a,c)=>a+c.charCodeAt(0),0);
+            list.push({uid:child.key,callsign:u.callsign,lat:((h*7+13)%140)-70,lon:((h*13+7)%340)-170,city:'UNKNOWN',country:'',online:u.online===true,estimated:true});
+        }
+    });
+    signals=list;
+    document.getElementById('signal-num').textContent=list.length;
+    renderSignalList(list);
+}
+db.ref('users').on('value',()=>loadSignals());
+
+function renderSignalList(list){
+    const c=document.getElementById('signal-list');
+    if(!list.length){c.innerHTML=`<div class="text-[#007a2a] retro-font text-xs tracking-widest px-2 py-4">NO SIGNALS DETECTED</div>`;return;}
+    const sorted=[...list].sort((a,b)=>(b.online?1:0)-(a.online?1:0));
+    c.innerHTML=sorted.map(sig=>`
+        <div class="flex items-start gap-2 px-2 py-1.5 hover:bg-zinc-900 rounded transition-colors border border-transparent hover:border-[#007a2a] cursor-default"
+             onmouseenter="focusSig('${sig.uid}')" onmouseleave="unfocusSig()">
+            <div class="mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${sig.online?'bg-[#00ff41]':'bg-[#7f0000]'}" style="${sig.online?'box-shadow:0 0 4px #00ff41':''}"></div>
+            <div class="min-w-0 flex-1">
+                <div class="retro-font text-[#00ff41] text-sm uppercase tracking-wider truncate">${esc(sig.callsign)}</div>
+                <div class="retro-font text-[9px] text-[#007a2a] uppercase tracking-widest truncate">${sig.estimated?'~ ':''}${esc(sig.city)}${sig.country?' · '+esc(sig.country):''}</div>
+            </div>
+        </div>`).join('');
+}
+function focusSig(uid){const sig=signals.find(s=>s.uid===uid);if(!sig)return;autoRot=false;rotLon=(sig.lon*Math.PI/180);rotLat=Math.max(-Math.PI/2.1,Math.min(Math.PI/2.1,-(sig.lat*Math.PI/180)*0.5));}
+function unfocusSig(){setTimeout(()=>{autoRot=true;},3000);}
+function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
+
+
+
+// ── Mobile map detection ──
+const mapIsMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 1024;
+if (mapIsMobile) {
+    document.querySelector('.map-agent-panel')?.style.setProperty('display','none','important');
+    document.getElementById('mobile-map-pill').style.display = 'flex';
+}
+
+function toggleMobileMapPanel() {
+    const overlay = document.getElementById('mobile-map-agents');
+    if (!overlay) return;
+    const isOpen = !overlay.classList.contains('hidden');
+    if (isOpen) {
+        overlay.classList.add('hidden');
+    } else {
+        // Sync content from desktop list
+        const src  = document.getElementById('signal-list');
+        const dest = document.getElementById('mobile-signal-list');
+        if (src && dest) dest.innerHTML = src.innerHTML;
+        overlay.classList.remove('hidden');
+    }
+}
+
+// ── Boot ──────────────────────────────────────────────────
+loadGeoData().catch(err=>{
+    console.error('GeoData error:',err);
+    document.getElementById('loading-status').textContent='ERROR — '+err.message;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+# .github/workflows/release.yml
+# =====================================================
+#  THE STRANGE DOMAIN — CI/CD
+#  Triggered when you push a version tag (e.g. v1.2.0)
+#  Deploys web app to Firebase AND publishes Electron
+#  binaries to GitHub Releases simultaneously.
+#
+#  SETUP:
+#  1. Add GH_TOKEN secret: GitHub → Settings → Secrets
+#     (needs repo + write:packages permissions)
+#  2. Add FIREBASE_SERVICE_ACCOUNT secret: Firebase →
+#     Project Settings → Service Accounts → Generate key
+#  3. Replace YOUR_FIREBASE_PROJECT_ID below
+#  4. Push a tag: git tag v1.2.0 && git push origin v1.2.0
+# =====================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'   # triggers on v1.0.0, v1.2.3, etc.
+
+jobs:
+  # ──────────────────────────────────────────────────
+  #  JOB 1: Deploy web app to Firebase Hosting
+  # ──────────────────────────────────────────────────
+  deploy-web:
+    name: Deploy Web → Firebase
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      # If you have a build step for your web app, add it here:
+      # - name: Build web
+      #   run: npm run build:web
+
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_THE_STRANGE_DOMAIN }}
+          projectId: the-strange-domain
+          channelId: live
+
+  # ──────────────────────────────────────────────────
+  #  JOB 2: Build & publish Electron for Windows
+  # ──────────────────────────────────────────────────
+  build-win:
+    name: Build Desktop → Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build & publish Windows installer
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: npm run release -- --win
+
+  # ──────────────────────────────────────────────────
+  #  JOB 3: Build & publish Electron for macOS
+  # ──────────────────────────────────────────────────
+  build-mac:
+    name: Build Desktop → macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build & publish macOS DMG
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # Add CSC_LINK and CSC_KEY_PASSWORD for code signing:
+          # CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          # CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: npm run release -- --mac
+
+  # ──────────────────────────────────────────────────
+  #  JOB 4: Build & publish Electron for Linux
+  # ──────────────────────────────────────────────────
+  build-linux:
+    name: Build Desktop → Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build & publish Linux packages
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: npm run release -- --linux

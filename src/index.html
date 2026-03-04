@@ -1,0 +1,1483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Strange Domain</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Desktop app: padding for native title bar overlay buttons */
+        @media (min-width: 0px) {
+            header { padding-left: env(titlebar-area-x, 8px); padding-top: 0; }
+        }
+    </style>
+
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
+
+    <style>
+        /* ── Reaction pills ── */
+        .reaction-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 1px 8px 1px 6px;
+            font-size: 0.85rem;
+            border: 1px solid var(--terminal-dim);
+            color: var(--terminal-dim);
+            background: transparent;
+            cursor: pointer;
+            font-family: 'VT323', monospace;
+            transition: border-color 0.15s, color 0.15s, background 0.15s;
+            line-height: 1.6;
+        }
+        .reaction-pill:hover,
+        .reaction-pill.reacted {
+            border-color: var(--primary-green);
+            color: var(--primary-green);
+            background: rgba(0,255,65,0.06);
+        }
+        .reaction-pill .emoji { font-size: 1rem; }
+
+        /* ── Emoji picker ── */
+        #emoji-picker {
+            position: fixed;
+            z-index: 300;
+            background: #0d0d0d;
+            border: 1px solid var(--terminal-dim);
+            box-shadow: 0 0 20px rgba(0,255,65,0.08);
+            display: flex;
+            gap: 2px;
+            padding: 6px;
+            transition: opacity 0.1s;
+        }
+        #emoji-picker.hidden { display: none; }
+        .emoji-opt {
+            font-size: 1.4rem;
+            padding: 3px 5px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: border-color 0.1s, background 0.1s;
+            border-radius: 2px;
+        }
+        .emoji-opt:hover {
+            border-color: var(--primary-green);
+            background: rgba(0,255,65,0.07);
+        }
+
+        /* ── Inline edit ── */
+        .edit-textarea {
+            width: 100%;
+            background: rgba(0,255,65,0.03);
+            border: 1px solid var(--terminal-dim);
+            border-bottom-color: var(--primary-green);
+            color: var(--primary-green);
+            font-family: 'VT323', monospace;
+            font-size: 1.15rem;
+            padding: 6px 8px;
+            outline: none;
+            resize: none;
+            min-height: 2.4rem;
+            line-height: 1.4;
+        }
+        .edit-textarea:focus { border-color: var(--primary-green); }
+
+        /* ── Channel header bar ── */
+        #channel-header {
+            height: 40px;
+            background: #0a0a0a;
+            border-bottom: 1px solid var(--terminal-dim);
+            display: flex;
+            align-items: center;
+            padding: 0 1.5rem;
+            gap: 0.75rem;
+            flex-shrink: 0;
+        }
+        #channel-header-name {
+            font-family: 'VT323', monospace;
+            font-size: 1.05rem;
+            color: var(--primary-green);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        #channel-header-desc {
+            font-family: 'VT323', monospace;
+            font-size: 0.8rem;
+            color: var(--terminal-dim);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        /* ── DM section label ── */
+        .sidebar-section-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--terminal-dim);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            padding: 0 8px;
+            margin-bottom: 4px;
+        }
+
+        /* ── Crew online dot ── */
+        .online-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--primary-green);
+            box-shadow: 0 0 5px var(--primary-green);
+            flex-shrink: 0;
+        }
+
+        /* ── Message "edited" tag ── */
+        .edited-tag {
+            font-size: 0.68rem;
+            color: var(--terminal-dim);
+            letter-spacing: 1px;
+            margin-left: 4px;
+            font-family: 'VT323', monospace;
+        }
+
+        /* ── DM button in crew list ── */
+        .dm-btn {
+            margin-left: auto;
+            font-size: 0.7rem;
+            padding: 1px 6px;
+            border: 1px solid transparent;
+            color: var(--terminal-dim);
+            background: transparent;
+            font-family: 'VT323', monospace;
+            letter-spacing: 1px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+            flex-shrink: 0;
+        }
+        .crew-item:hover .dm-btn {
+            opacity: 1;
+            border-color: var(--terminal-dim);
+        }
+        .dm-btn:hover {
+            border-color: var(--primary-green) !important;
+            color: var(--primary-green) !important;
+        }
+
+        /* react button shown on message hover */
+        .react-trigger {
+            opacity: 0;
+            transition: opacity 0.1s;
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--terminal-dim);
+            cursor: pointer;
+            font-size: 0.75rem;
+            padding: 1px 6px;
+            font-family: 'VT323', monospace;
+            letter-spacing: 1px;
+            white-space: nowrap;
+        }
+        .react-trigger:hover {
+            border-color: var(--terminal-dim);
+            color: var(--primary-green);
+        }
+        .message:hover .react-trigger { opacity: 1; }
+        .message:hover .msg-controls { opacity: 1 !important; }
+
+        /* ══════════════════════════════════════
+           VOICE / VIDEO CHANNEL
+        ══════════════════════════════════════ */
+
+        /* Sidebar voice channel button */
+        .voice-channel-btn {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 7px 12px;
+            border: 1px solid transparent;
+            background: transparent;
+            cursor: pointer;
+            font-family: 'VT323', monospace;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-size: 0.85rem;
+            color: var(--terminal-dim);
+            transition: all 0.15s;
+            position: relative;
+        }
+        .voice-channel-btn:hover { background: rgba(0,255,65,0.04); color: var(--primary-green); border-color: var(--terminal-dim); }
+        .voice-channel-btn.in-call { color: var(--primary-green); border-color: var(--primary-green); background: rgba(0,255,65,0.05); }
+        .voice-channel-btn .vc-live-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--primary-green);
+            box-shadow: 0 0 6px var(--primary-green);
+            animation: vc-pulse 1.5s ease-in-out infinite;
+            flex-shrink: 0;
+        }
+        @keyframes vc-pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.5; transform:scale(0.8); } }
+
+        /* Participant count badge */
+        .vc-count {
+            margin-left: auto;
+            font-size: 0.7rem;
+            color: var(--terminal-dim);
+            background: rgba(0,255,65,0.06);
+            border: 1px solid var(--terminal-dim);
+            padding: 0 5px;
+            line-height: 1.4;
+        }
+
+        /* ── Voice panel (in-flow, expands above the input bar) ── */
+        #voice-panel {
+            flex-shrink: 0;
+            background: #050505;
+            border-top: 2px solid var(--primary-green);
+            display: flex;
+            flex-direction: column;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s cubic-bezier(0.16,1,0.3,1);
+            box-shadow: 0 -8px 40px rgba(0,255,65,0.08);
+        }
+        #voice-panel.open { max-height: 60vh; overflow: visible; }
+        #voice-panel.open.minimized { max-height: 44px; overflow: hidden; }
+
+        /* Voice panel header */
+        #voice-panel-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 20px;
+            border-bottom: 1px solid #1a1a1a;
+            flex-shrink: 0;
+            background: #080808;
+        }
+        #voice-panel-title {
+            font-family: 'VT323', monospace;
+            font-size: 1rem;
+            letter-spacing: 3px;
+            color: var(--primary-green);
+            text-transform: uppercase;
+        }
+        #voice-panel-status {
+            font-family: 'VT323', monospace;
+            font-size: 0.75rem;
+            color: var(--terminal-dim);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        /* Control buttons */
+        .vc-ctrl-btn {
+            font-family: 'VT323', monospace;
+            font-size: 0.75rem;
+            letter-spacing: 2px;
+            padding: 3px 12px;
+            border: 1px solid var(--terminal-dim);
+            color: var(--terminal-dim);
+            background: transparent;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .vc-ctrl-btn:hover { border-color: var(--primary-green); color: var(--primary-green); }
+        .vc-ctrl-btn.active { border-color: var(--primary-green); color: var(--primary-green); background: rgba(0,255,65,0.06); }
+        .vc-ctrl-btn.danger { border-color: #7f1d1d; color: #ef4444; }
+        .vc-ctrl-btn.danger:hover { background: rgba(239,68,68,0.1); border-color: #ef4444; }
+        .vc-ctrl-btn.muted-btn { border-color: #7f1d1d; color: #7f1d1d; }
+        .vc-ctrl-btn.muted-btn:hover { color: #ef4444; border-color: #ef4444; }
+
+        /* Participant grid */
+        #voice-participants {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 12px 20px;
+            overflow-y: auto;
+            flex: 1;
+            align-content: flex-start;
+        }
+
+        /* Individual tile */
+        .vc-tile {
+            position: relative;
+            width: 160px;
+            height: 120px;
+            background: #0a0a0a;
+            border: 1px solid #1a1a1a;
+            flex-shrink: 0;
+            overflow: hidden;
+            transition: border-color 0.15s;
+        }
+        .vc-tile.speaking { border-color: var(--primary-green); box-shadow: 0 0 8px rgba(0,255,65,0.2); }
+        .vc-tile video {
+            width: 100%; height: 100%;
+            object-fit: cover;
+            display: block;
+            transform: scaleX(-1); /* mirror local video */
+        }
+        .vc-tile.remote video { transform: scaleX(1); }
+        .vc-tile .vc-tile-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 60%);
+            pointer-events: none;
+        }
+        .vc-tile .vc-tile-avatar {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0a0a0a;
+        }
+        .vc-tile .vc-tile-avatar img {
+            width: 56px; height: 56px;
+            object-fit: cover;
+            border: 1px solid var(--terminal-dim);
+            opacity: 0.7;
+        }
+        .vc-tile .vc-tile-avatar.hidden { display: none; }
+        .vc-tile .vc-tile-name {
+            font-family: 'VT323', monospace;
+            font-size: 0.78rem;
+            letter-spacing: 2px;
+            color: var(--primary-green);
+            text-transform: uppercase;
+            padding: 4px 7px;
+            position: absolute;
+            bottom: 4px; left: 0; right: 0;
+            text-align: center;
+        }
+        .vc-tile .vc-tile-muted {
+            position: absolute;
+            top: 5px; right: 5px;
+            font-size: 0.65rem;
+            color: #ef4444;
+            font-family: 'VT323', monospace;
+            letter-spacing: 1px;
+            background: rgba(0,0,0,0.6);
+            padding: 1px 4px;
+            border: 1px solid #7f1d1d;
+        }
+        /* Screen share tile is wider */
+        .vc-tile.screenshare {
+            width: 320px;
+            height: 200px;
+            border-color: #00aaff;
+            box-shadow: 0 0 10px rgba(0,170,255,0.2);
+        }
+        .vc-tile.screenshare .vc-tile-name {
+            color: #00aaff;
+        }
+        .vc-tile.screenshare::before {
+            content: '⬡ SCREEN SHARE';
+            position: absolute;
+            top: 5px; left: 7px;
+            font-family: 'VT323', monospace;
+            font-size: 0.6rem;
+            letter-spacing: 2px;
+            color: #00aaff;
+            z-index: 6;
+            pointer-events: none;
+        }
+        .vc-ctrl-btn.share-active {
+            border-color: #00aaff;
+            color: #00aaff;
+            background: rgba(0,170,255,0.08);
+        }
+
+        /* ── Fullscreen button on voice tiles ── */
+        .vc-fullscreen-btn {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            z-index: 10;
+            background: rgba(0,0,0,0.7);
+            border: 1px solid #333;
+            color: #888;
+            font-family: 'VT323', monospace;
+            font-size: 0.6rem;
+            letter-spacing: 1px;
+            padding: 2px 6px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+            line-height: 1;
+        }
+        .vc-tile:hover .vc-fullscreen-btn { opacity: 1; }
+        .vc-fullscreen-btn:hover {
+            color: #00ff41;
+            border-color: #00ff41;
+            background: rgba(0,255,65,0.1);
+        }
+        /* When screenshare tile, match its blue accent */
+        .vc-tile.screenshare .vc-fullscreen-btn {
+            top: auto;
+            bottom: 4px;
+            left: auto;
+            right: 4px;
+        }
+        .vc-tile.screenshare .vc-fullscreen-btn:hover {
+            color: #00aaff;
+            border-color: #00aaff;
+            background: rgba(0,170,255,0.1);
+        }
+        /* Tile in fullscreen mode */
+        .vc-tile:fullscreen,
+        .vc-tile:-webkit-full-screen {
+            width: 100vw !important;
+            height: 100vh !important;
+            background: #000;
+        }
+        .vc-tile:fullscreen video,
+        .vc-tile:-webkit-full-screen video {
+            object-fit: contain;
+        }
+        .vc-tile:fullscreen .vc-fullscreen-btn,
+        .vc-tile:-webkit-full-screen .vc-fullscreen-btn {
+            opacity: 0;
+            top: 12px;
+            left: 12px;
+            font-size: 0.75rem;
+            padding: 4px 10px;
+        }
+        .vc-tile:fullscreen:hover .vc-fullscreen-btn,
+        .vc-tile:-webkit-full-screen:hover .vc-fullscreen-btn {
+            opacity: 1;
+        }
+        /* CSS fallback when native fullscreen API is blocked (Electron) */
+        .vc-tile.vc-pseudo-fs {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 9999 !important;
+            background: #000 !important;
+            border: none !important;
+            border-radius: 0 !important;
+        }
+        .vc-tile.vc-pseudo-fs video {
+            object-fit: contain;
+        }
+        .vc-tile.vc-pseudo-fs .vc-fullscreen-btn {
+            opacity: 0;
+            top: 12px;
+            left: 12px;
+            font-size: 0.75rem;
+            padding: 4px 10px;
+        }
+        .vc-tile.vc-pseudo-fs:hover .vc-fullscreen-btn {
+            opacity: 1;
+        }
+
+        /* Scanline on tiles */
+        .vc-tile::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(to bottom, transparent 0px, transparent 3px, rgba(0,0,0,0.12) 3px, rgba(0,0,0,0.12) 4px);
+            pointer-events: none;
+            z-index: 5;
+        }
+
+    </style>
+</head>
+<body class="bg-black text-[#00ff41] overflow-hidden h-screen flex flex-col">
+
+    <!-- Notification audio context created in JS (Web Audio tick) -->
+
+    <!-- Global emoji picker (positioned via JS) -->
+    <div id="emoji-picker" class="hidden"></div>
+
+    <!-- ════════════ HEADER ════════════ -->
+    <!-- pr-[140px] reserves space for Electron's window-control overlay (minimize / maximize / close) -->
+    <header class="crt h-16 bg-zinc-950 border-b border-[#00ff41] flex items-center pl-4 md:pl-8 pr-[140px] z-50 flex-shrink-0" style="-webkit-app-region:drag;">
+        <!-- Mobile hamburger — hidden on md+ -->
+        <button id="mobile-hamburger"
+                onclick="toggleMobileDrawer()"
+                class="md:hidden mr-3 text-[#007a2a] hover:text-[#00ff41] text-xl transition-colors flex-shrink-0"
+                style="background:transparent;border:none;cursor:pointer;padding:4px 6px;-webkit-app-region:no-drag;">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="flex items-center gap-4">
+            <div class="hidden sm:flex w-9 h-9 bg-[#00ff41] text-black items-center justify-center text-2xl font-bold retro-font border-2 border-black">74</div>
+            <div>
+                <div class="text-2xl md:text-4xl leading-none retro-font tracking-[4px] md:tracking-[6px] terminal-glow">THE STRANGE DOMAIN</div>
+                <div class="text-[9px] text-[#004411] -mt-1 pl-1 uppercase font-bold">S GRADE ANOMALY • 1974 • NON-EUCLIDEAN SPACE</div>
+            </div>
+        </div>
+        <div class="flex-1"></div>
+        <div class="flex items-center gap-3 md:gap-4" style="-webkit-app-region:no-drag;">
+            <!-- Unread message badge — shows total unread count -->
+            <div id="header-unread-badge" class="header-unread-badge hidden" onclick="jumpToFirstUnread()" title="Unread messages">
+                <i class="fas fa-comment-dots"></i>
+                <span id="header-unread-count">0</span>
+            </div>
+            <!-- Admin panel button — only visible to admins via JS -->
+            <button id="admin-panel-btn"
+                    onclick="showAdminPanel()"
+                    class="hidden px-3 py-1 md:px-4 md:py-1.5 bg-yellow-900/20 hover:bg-yellow-700/30 border border-yellow-600/50 text-yellow-500 text-[10px] md:text-sm retro-font transition-all tracking-widest">
+                ⬡ ADMIN
+            </button>
+            <div onclick="showProfileModal()" class="flex items-center gap-3 cursor-pointer group">
+                <div class="relative">
+                    <img id="header-avatar" src="https://static.wikia.nocookie.net/destinypedia/images/6/6e/Human.png" class="w-8 h-8 md:w-10 md:h-10 rounded-full border-2 border-[#00ff41]">
+                    <div class="absolute -bottom-1 -right-1 w-3 h-3 md:w-4 md:h-4 bg-[#00ff41] rounded-full border-2 border-zinc-950"></div>
+                </div>
+                <div class="text-right hidden sm:block">
+                    <div id="header-username" class="text-md md:text-lg leading-none retro-font">Connecting...</div>
+                    <div id="header-title" class="text-[10px] text-[#00ff41] opacity-70 uppercase">VOID DRIFTER</div>
+                </div>
+            </div>
+            <button onclick="logout()" class="px-3 py-1 md:px-5 md:py-2 bg-red-900/20 hover:bg-red-700/40 border border-red-500/50 text-red-400 text-[10px] md:text-sm retro-font rounded transition-all">
+                EXIT
+            </button>
+        </div>
+    </header>
+
+    <!-- ════════════ MAIN BODY ════════════ -->
+    <div class="flex flex-1 overflow-hidden relative">
+
+        <!-- ── Left Sidebar ── -->
+        <div class="crt hidden md:flex w-60 bg-zinc-950 border-r border-[#00ff41] flex-col flex-shrink-0">
+            <div class="px-6 py-3 border-b border-[#004411]">
+                <div class="uppercase text-[10px] tracking-[3px] text-[#00ff41] font-bold opacity-60">Navigation</div>
+            </div>
+
+            <!-- Text channels -->
+            <div class="px-3 pt-4">
+                <div class="sidebar-section-label mb-2"><i class="fas fa-terminal"></i><span>Text Relays</span></div>
+                <div id="text-channels" class="space-y-1"></div>
+            </div>
+
+
+            <!-- Voice channels -->
+            <div class="px-3 pt-4">
+                <div class="sidebar-section-label mb-2"><i class="fas fa-satellite-dish"></i><span>Voice Relay</span></div>
+                <div id="voice-channels" class="space-y-1">
+                    <button id="voice-channel-btn-comms"
+                            class="voice-channel-btn"
+                            onclick="toggleVoiceChannel('comms')">
+                        <i class="fas fa-microphone text-xs"></i>
+                        <span>comms</span>
+                        <span id="vc-count-comms" class="vc-count hidden">0</span>
+                    </button>
+                    <button class="voice-channel-btn" onclick="openAudioSettings()" style="font-size:0.75rem;">
+                        <i class="fas fa-cog text-xs"></i>
+                        <span>Audio Settings</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Direct messages -->
+            <div class="px-3 pt-5">
+                <div class="sidebar-section-label mb-2"><i class="fas fa-user-secret"></i><span>Private Messages</span></div>
+                <div id="dm-channels" class="space-y-1">
+                    <div id="dm-empty" class="px-2 text-[9px] text-[#004411] uppercase tracking-widest">No active links...</div>
+                </div>
+            </div>
+
+            <div class="flex-1"></div>
+
+            <!-- Signal Map link -->
+            <div class="px-3 pb-3">
+                <a href="map.html"
+                   class="w-full flex items-center gap-3 px-3 py-2 border border-[#004411] hover:border-[#00ff41] text-[#004411] hover:text-[#00ff41] transition-all group retro-font uppercase tracking-wider text-sm">
+                    <i class="fas fa-globe-americas text-sm"></i>
+                    <span>UPLINK MAP</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- ── Main Viewport ── -->
+        <div id="main-viewport" class="flex-1 flex flex-col relative w-full overflow-hidden">
+
+            <!-- Channel header bar -->
+            <div id="channel-header">
+                <span id="channel-header-icon" class="text-[#004411] text-sm"></span>
+                <span id="channel-header-name" class="text-[#00ff41]">—</span>
+                <span class="text-[#004411] text-xs">|</span>
+                <span id="channel-header-desc" class="text-[#004411]"></span>
+            </div>
+
+            <div id="content-area" class="flex-1 px-4 md:px-8 py-4 overflow-y-auto relative z-10 bg-[radial-gradient(#111_1px,transparent_1px)] bg-[length:40px_40px]" style="box-shadow: inset 0 0 60px rgba(0,0,0,0.6);"></div>
+
+            <!-- ══ VOICE PANEL ══ -->
+            <div id="voice-panel">
+                <div id="voice-panel-header">
+                    <div class="vc-live-dot" id="vc-live-dot"></div>
+                    <span id="voice-panel-title">VOICE RELAY — COMMS</span>
+                    <span id="voice-panel-status">CONNECTING...</span>
+                    <div class="flex-1"></div>
+                    <!-- Controls -->
+                    <button id="vc-btn-mic"  class="vc-ctrl-btn active" onclick="vcToggleMic()"><i class="fas fa-microphone mr-1"></i>MIC</button>
+                    <button id="vc-btn-cam"  class="vc-ctrl-btn" onclick="vcToggleCam()"><i class="fas fa-video mr-1"></i>CAM</button>
+                    <button id="vc-btn-share" class="vc-ctrl-btn" onclick="vcToggleShare()"><i class="fas fa-desktop mr-1"></i>SHARE</button>
+                    <button id="vc-btn-leave" class="vc-ctrl-btn danger" onclick="leaveVoiceChannel()"><i class="fas fa-times mr-1"></i>LEAVE</button>
+                </div>
+                <div id="voice-participants"></div>
+            </div>
+
+            <div id="chat-input-bar" class="h-16 bg-zinc-950 border-t border-[#00ff41] px-4 md:px-8 flex items-center gap-3 hidden flex-shrink-0">
+                <!-- Muted overlay — shown instead of input when user is muted -->
+                <div id="muted-notice" class="hidden w-full flex items-center gap-3">
+                    <i class="fas fa-ban text-red-700 text-lg"></i>
+                    <span class="retro-font text-red-700 tracking-widest uppercase text-lg">TRANSMISSION BLOCKED — YOU HAVE BEEN SILENCED BY THE COMPANY</span>
+                </div>
+                <!-- Normal input -->
+                <div id="input-controls" class="flex items-center gap-3 w-full">
+                    <button id="upload-img-btn"
+                            onclick="triggerImageUpload()"
+                            title="Upload image"
+                            class="h-10 px-3 border border-[#004411] hover:border-[#00ff41] text-[#004411] hover:text-[#00ff41] retro-font text-lg transition-all flex-shrink-0"
+                            style="font-size:1.2rem">📎</button>
+                    <input id="message-input"
+                           onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); sendMessage(); }"
+                           type="text"
+                           placeholder="TYPE TRANSMISSION..."
+                           class="flex-1 bg-black border border-[#004411] focus:border-[#00ff41] h-10 px-4 text-md outline-none placeholder-[#004411] retro-font text-[#00ff41]">
+                    <button onclick="sendMessage()" class="btn-text retro-font font-bold px-6 h-10 text-lg transition-colors !p-0">SEND</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Right Sidebar: Crew ── -->
+        <div class="crt hidden lg:flex w-56 bg-zinc-950 border-l border-[#00ff41] flex-col flex-shrink-0">
+            <div class="px-5 py-3 border-b border-[#004411] flex items-center gap-2">
+                <div class="online-dot"></div>
+                <div class="uppercase text-[10px] tracking-widest text-[#00ff41] font-bold opacity-60">Agents Active</div>
+            </div>
+            <div id="crew-list" class="flex-1 overflow-y-auto p-3 space-y-1"></div>
+        </div>
+    </div>
+
+    <!-- ════════════ PROFILE MODAL ════════════ -->
+    <div id="edit-profile-modal" class="fixed inset-0 bg-black/90 flex items-end sm:items-center justify-center z-[210] hidden p-0 sm:p-4">
+        <div class="crt bg-zinc-950 border-2 border-[#00ff41] p-5 sm:p-8 sm:rounded shadow-2xl max-w-lg w-full max-h-[90dvh] overflow-y-auto">
+            <h2 class="text-3xl retro-font terminal-glow mb-6 text-center text-[#00ff41]">USER_PROFILE_CONFIG</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-[10px] uppercase tracking-widest text-[#004411] mb-1 font-bold">Avatar</label>
+                    <div class="flex items-center gap-4 mb-2">
+                        <img id="avatar-preview"
+                             src="https://static.wikia.nocookie.net/destinypedia/images/6/6e/Human.png"
+                             class="w-14 h-14 border-2 border-[#004411] object-cover rounded">
+                        <button id="upload-avatar-btn"
+                                onclick="uploadAvatarImage()"
+                                class="btn-text !text-xs !px-4 !py-2">UPLOAD IMAGE</button>
+                    </div>
+                    <input id="edit-avatar" type="url" placeholder="...or paste a URL" class="auth-input text-sm py-2 w-full">
+                </div>
+                <div>
+                    <label class="block text-[10px] uppercase tracking-widest text-[#004411] mb-1 font-bold">Callsign (read-only)</label>
+                    <input id="edit-callsign" type="text" class="auth-input bg-zinc-900/50 cursor-not-allowed opacity-50 w-full" readonly>
+                </div>
+                <div>
+                    <label class="block text-[10px] uppercase tracking-widest text-[#004411] mb-1 font-bold">Rank / Title</label>
+                    <input id="edit-title" type="text" class="auth-input text-sm py-2 w-full">
+                </div>
+                <div>
+                    <label class="block text-[10px] uppercase tracking-widest text-[#004411] mb-1 font-bold">Bio</label>
+                    <textarea id="edit-bio" class="auth-input h-24 text-sm resize-none w-full"></textarea>
+                </div>
+                <div class="flex gap-3 justify-end mt-6">
+                    <button onclick="closeEditProfile()" class="px-4 py-2 text-[#004411] retro-font hover:text-[#00ff41]">CANCEL</button>
+                    <button onclick="saveProfile()" class="btn-text !px-6 !py-2 !text-sm">UPDATE</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════════ ADMIN PANEL ════════════ -->
+    <div id="admin-panel-modal" class="fixed inset-0 bg-black/95 z-[210] hidden flex flex-col">
+        <!-- Panel header -->
+        <div class="crt border-b-2 border-yellow-600/60 bg-zinc-950 px-8 pr-[140px] py-4 flex items-center gap-6 flex-shrink-0">
+            <div>
+                <div class="retro-font text-yellow-400 text-3xl tracking-widest terminal-glow" style="text-shadow: 0 0 10px #ca8a04;">⬡ OPERATOR CONSOLE</div>
+                <div class="text-[9px] text-yellow-700 uppercase tracking-widest mt-0.5">SYSTEM ACCESS LEVEL: COMMAND // THE STRANGE DOMAIN</div>
+            </div>
+            <div class="flex-1"></div>
+            <div id="admin-stats" class="text-right text-[10px] text-yellow-700 retro-font uppercase tracking-wider leading-relaxed"></div>
+            <button onclick="closeAdminPanel()"
+                    class="px-4 py-2 border border-yellow-600/50 text-yellow-600 hover:text-yellow-400 hover:border-yellow-400 retro-font text-sm tracking-widest transition-all">
+                CLOSE_CONSOLE
+            </button>
+        </div>
+
+        <!-- Tab bar -->
+        <div class="flex border-b border-[#004411] bg-zinc-950 flex-shrink-0">
+            <button onclick="adminTab('users')" id="admin-tab-users"
+                class="admin-tab-btn px-8 py-3 retro-font text-sm tracking-widest uppercase border-b-2 border-yellow-500 text-yellow-400">
+                USER MANIFEST
+            </button>
+            <button onclick="adminTab('log')" id="admin-tab-log"
+                class="admin-tab-btn px-8 py-3 retro-font text-sm tracking-widest uppercase border-b-2 border-transparent text-[#004411] hover:text-yellow-700 transition-colors">
+                ACTION LOG
+            </button>
+        </div>
+
+        <!-- Users tab -->
+        <div id="admin-tab-content-users" class="flex-1 overflow-y-auto p-8">
+            <div id="admin-user-list" class="grid gap-3 max-w-4xl"></div>
+        </div>
+
+        <!-- Log tab -->
+        <div id="admin-tab-content-log" class="hidden flex-1 overflow-y-auto p-8">
+            <div id="admin-log-list" class="max-w-4xl space-y-2 font-mono text-sm"></div>
+        </div>
+    </div>
+
+    <style>
+        /* Admin panel row */
+        .admin-user-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: #0a0a0a;
+            border: 1px solid #1a1a0a;
+            transition: border-color 0.15s;
+        }
+        .admin-user-row:hover { border-color: #4a3a00; }
+        .admin-user-row.is-admin { border-color: rgba(202,138,4,0.3); background: rgba(202,138,4,0.03); }
+        .admin-user-row.is-muted  { border-color: rgba(220,38,38,0.25); background: rgba(220,38,38,0.03); }
+        .admin-user-row.is-banned { border-color: rgba(127,0,0,0.4); background: rgba(127,0,0,0.05); opacity: 0.6; }
+
+        .admin-action-btn {
+            font-family: 'VT323', monospace;
+            font-size: 0.75rem;
+            letter-spacing: 2px;
+            padding: 2px 10px;
+            border: 1px solid;
+            cursor: pointer;
+            background: transparent;
+            transition: background 0.15s, color 0.15s;
+            white-space: nowrap;
+            text-transform: uppercase;
+        }
+        .admin-action-btn.mute   { border-color: #7f1d1d; color: #ef4444; }
+        .admin-action-btn.mute:hover { background: rgba(239,68,68,0.15); }
+        .admin-action-btn.unmute { border-color: #14532d; color: #22c55e; }
+        .admin-action-btn.unmute:hover { background: rgba(34,197,94,0.1); }
+        .admin-action-btn.ban    { border-color: #450a0a; color: #7f1d1d; }
+        .admin-action-btn.ban:hover { background: rgba(127,29,29,0.2); }
+        .admin-action-btn.unban  { border-color: #004411; color: #00ff41; }
+        .admin-action-btn.unban:hover { background: rgba(0,255,65,0.08); }
+        .admin-action-btn.promote { border-color: #78350f; color: #ca8a04; }
+        .admin-action-btn.promote:hover { background: rgba(202,138,4,0.1); }
+        .admin-action-btn.demote  { border-color: #4a3a00; color: #854d0e; }
+        .admin-action-btn.demote:hover  { background: rgba(133,77,14,0.15); }
+
+        .admin-badge {
+            font-family: 'VT323', monospace;
+            font-size: 0.65rem;
+            letter-spacing: 2px;
+            padding: 0px 5px;
+            text-transform: uppercase;
+        }
+        .admin-badge.admin  { border: 1px solid #ca8a04; color: #ca8a04; }
+        .admin-badge.muted  { border: 1px solid #7f1d1d; color: #ef4444; }
+        .admin-badge.banned { border: 1px solid #450a0a; color: #7f1d1d; }
+
+        /* Admin controls on messages */
+        .admin-msg-delete {
+            font-family: 'VT323', monospace;
+            font-size: 0.65rem;
+            letter-spacing: 1px;
+            padding: 1px 5px;
+            border: 1px solid transparent;
+            color: #7f1d1d;
+            cursor: pointer;
+            background: transparent;
+            transition: all 0.15s;
+            text-transform: uppercase;
+            opacity: 0;
+        }
+        .message:hover .admin-msg-delete { opacity: 1; border-color: #7f1d1d; }
+        .admin-msg-delete:hover { background: rgba(127,29,29,0.2) !important; color: #ef4444 !important; }
+
+        /* Admin tab active state */
+        .admin-tab-btn.active { border-bottom-color: #ca8a04 !important; color: #ca8a04 !important; }
+
+        /* Log entries */
+        .log-entry {
+            font-family: 'VT323', monospace;
+            font-size: 0.85rem;
+            color: #004411;
+            letter-spacing: 1px;
+            padding: 4px 0;
+            border-bottom: 1px solid #0a0a0a;
+        }
+        .log-entry .log-time { color: #002208; margin-right: 12px; }
+        .log-entry .log-action { color: #ca8a04; margin-right: 8px; }
+        .log-entry .log-target { color: #00ff41; }
+    </style>
+
+    <!-- ════════════ AVATAR CROP MODAL ════════════ -->
+    <div id="crop-modal" class="fixed inset-0 bg-black/95 z-[998] hidden flex flex-col items-center justify-center p-4">
+        <div class="crt bg-zinc-950 border-2 border-[#00ff41] w-full max-w-lg flex flex-col gap-0 shadow-[0_0_40px_rgba(0,255,65,0.1)] max-h-[90dvh] overflow-y-auto">
+            <!-- Header -->
+            <div class="flex items-center gap-3 px-5 py-3 border-b border-[#007a2a] bg-[#050505] flex-shrink-0">
+                <span class="text-[#00ff41] text-sm">◈</span>
+                <span class="retro-font text-[#00ff41] text-sm tracking-[3px] uppercase">Crop Avatar — Square</span>
+                <div class="flex-1"></div>
+                <button onclick="closeCropModal()" class="text-[#007a2a] hover:text-[#00ff41] retro-font text-xl transition-colors">✕</button>
+            </div>
+
+            <!-- Canvas viewport -->
+            <div class="relative flex items-center justify-center bg-black overflow-hidden select-none" style="height:340px">
+                <canvas id="crop-canvas" style="display:block;touch-action:none;cursor:grab"></canvas>
+                <!-- Square crop overlay -->
+                <div class="absolute pointer-events-none" id="crop-overlay">
+                    <!-- dark corners -->
+                    <div id="crop-shade-top"    class="absolute bg-black/60 left-0 right-0 top-0"    style=""></div>
+                    <div id="crop-shade-bottom" class="absolute bg-black/60 left-0 right-0 bottom-0" style=""></div>
+                    <div id="crop-shade-left"   class="absolute bg-black/60 top-0 bottom-0 left-0"   style=""></div>
+                    <div id="crop-shade-right"  class="absolute bg-black/60 top-0 bottom-0 right-0"  style=""></div>
+                    <!-- aperture border -->
+                    <div id="crop-box" class="absolute border-2 border-[#00ff41] shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] pointer-events-none"></div>
+                </div>
+            </div>
+
+            <!-- Zoom slider -->
+            <div class="flex items-center gap-4 px-5 py-3 border-t border-[#1a1a1a] bg-[#050505] flex-shrink-0">
+                <span class="retro-font text-[#007a2a] text-xs tracking-widest uppercase">Zoom</span>
+                <input id="crop-zoom" type="range" min="100" max="400" value="100" step="1"
+                       oninput="cropSetZoom(this.value)"
+                       class="flex-1 accent-[#00ff41] h-1 bg-[#1a1a1a] rounded-none cursor-pointer">
+                <span id="crop-zoom-label" class="retro-font text-[#007a2a] text-xs w-10 text-right">100%</span>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex justify-end gap-3 px-5 pb-4 bg-[#050505] flex-shrink-0">
+                <button onclick="closeCropModal()" class="sys-btn sys-btn-cancel">CANCEL</button>
+                <button onclick="applyCrop()"       class="sys-btn sys-btn-confirm">APPLY CROP</button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        /* ── Crop modal range input ── */
+        #crop-zoom { -webkit-appearance: none; appearance: none; height:3px; outline:none; }
+        #crop-zoom::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; background:#00ff41; cursor:pointer; border:none; }
+        #crop-zoom::-moz-range-thumb { width:12px; height:12px; background:#00ff41; cursor:pointer; border:none; border-radius:0; }
+
+        /* ── Channel mute toggle in sidebar ── */
+        .ch-mute-btn {
+            opacity: 0;
+            margin-left: auto;
+            font-size: 0.6rem;
+            padding: 1px 5px;
+            border: 1px solid transparent;
+            color: #007a2a;
+            background: transparent;
+            font-family: 'VT323', monospace;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+            flex-shrink: 0;
+            line-height: 1.5;
+        }
+        button:hover .ch-mute-btn,
+        .ch-btn-wrap:hover .ch-mute-btn { opacity: 1; border-color: #007a2a; }
+        .ch-mute-btn:hover { border-color: #00ff41 !important; color: #00ff41 !important; }
+        .ch-mute-btn.muted { opacity: 1; border-color: #7f1d1d; color: #7f0000; }
+        .ch-mute-btn.muted:hover { border-color: #ef4444 !important; color: #ef4444 !important; }
+    </style>
+
+
+    <!-- ════════════ USER PROFILE VIEW MODAL ════════════ -->
+    <div id="user-profile-modal"
+         class="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-[990] hidden p-0 sm:p-4"
+         onclick="closeUserProfile(event)">
+        <div class="crt bg-zinc-950 border-2 border-[#00ff41] w-full sm:max-w-sm relative max-h-[85dvh] overflow-y-auto"
+             onclick="event.stopPropagation()">
+
+            <!-- Close -->
+            <button onclick="closeUserProfile()"
+                    class="absolute top-3 right-4 text-[#007a2a] hover:text-[#00ff41] retro-font text-xl tracking-widest transition-colors z-10">✕</button>
+
+            <!-- Banner + floating avatar -->
+            <div class="relative bg-zinc-900 border-b border-[#007a2a]">
+                <div class="h-16 bg-[radial-gradient(#007a2a_1px,transparent_1px)] bg-[length:20px_20px] opacity-30"></div>
+                <div class="absolute -bottom-8 left-5">
+                    <img id="up-avatar"
+                         src="https://static.wikia.nocookie.net/destinypedia/images/6/6e/Human.png"
+                         class="w-16 h-16 border-2 border-[#00ff41] object-cover shadow-[0_0_12px_rgba(0,255,65,0.3)]">
+                </div>
+                <div id="up-online-badge"  class="absolute bottom-2 right-4 text-[9px] retro-font tracking-widest uppercase hidden"><span class="text-[#00ff41]">● ONLINE</span></div>
+                <div id="up-offline-badge" class="absolute bottom-2 right-4 text-[9px] retro-font tracking-widest uppercase hidden"><span class="text-[#7f0000]">○ OFFLINE</span></div>
+            </div>
+
+            <!-- Info -->
+            <div class="pt-12 px-5 pb-5 space-y-3">
+                <div>
+                    <div id="up-callsign" class="retro-font text-[#00ff41] text-2xl tracking-widest uppercase terminal-glow leading-none"></div>
+                    <div id="up-title"    class="text-[10px] text-[#007a2a] uppercase tracking-[3px] mt-0.5"></div>
+                </div>
+                <div id="up-bio-wrap" class="border-l-2 border-[#007a2a] pl-3 hidden">
+                    <div class="text-[9px] text-[#007a2a] uppercase tracking-widest mb-1">Bio</div>
+                    <p id="up-bio" class="retro-font text-[#00ff41]/70 text-sm leading-snug whitespace-pre-wrap break-words"></p>
+                </div>
+                <div id="up-no-bio" class="text-[9px] text-[#004411] uppercase tracking-widest italic hidden">No bio recorded.</div>
+                <div id="up-actions" class="flex gap-2 pt-1 hidden">
+                    <button onclick="userProfileDM()"
+                            class="btn-text !text-xs !px-4 !py-1.5 flex items-center gap-2">
+                        <i class="fas fa-user-secret text-xs"></i> OPEN PRIVATE MESSAGE
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════════ SYSTEM DIALOG ════════════ -->
+    <div id="sys-dialog" class="fixed inset-0 z-[999] flex items-center justify-center hidden" style="background:rgba(0,0,0,0.85)">
+        <div class="crt bg-zinc-950 border-2 border-[#00ff41] w-full max-w-sm mx-4 shadow-[0_0_40px_rgba(0,255,65,0.12)]">
+            <div class="flex items-center gap-3 px-5 py-3 border-b border-[#007a2a] bg-[#050505]">
+                <span id="sys-dialog-icon" class="text-[#00ff41] text-sm"></span>
+                <span id="sys-dialog-title" class="retro-font text-[#00ff41] text-sm tracking-[3px] uppercase"></span>
+            </div>
+            <div class="px-6 py-5">
+                <p id="sys-dialog-msg" class="retro-font text-[#00ff41] text-base leading-snug tracking-wide"></p>
+            </div>
+            <div id="sys-dialog-btns" class="flex justify-end gap-3 px-6 pb-5"></div>
+        </div>
+    </div>
+    <div id="sys-toast-wrap" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1000] flex flex-col gap-2 items-center pointer-events-none"></div>
+    <style>
+        .sys-btn { font-family:'VT323',monospace; font-size:.9rem; letter-spacing:2px; padding:4px 18px; border:1px solid; cursor:pointer; background:transparent; text-transform:uppercase; transition:background .12s,color .12s; }
+        .sys-btn-confirm { border-color:#00ff41; color:#00ff41; } .sys-btn-confirm:hover { background:rgba(0,255,65,.1); }
+        .sys-btn-cancel  { border-color:#007a2a; color:#007a2a; } .sys-btn-cancel:hover  { border-color:#00ff41; color:#00ff41; }
+        .sys-btn-danger  { border-color:#7f1d1d; color:#ef4444; } .sys-btn-danger:hover  { background:rgba(239,68,68,.1); border-color:#ef4444; }
+        .sys-btn-ok      { border-color:#00ff41; color:#00ff41; } .sys-btn-ok:hover      { background:rgba(0,255,65,.1); }
+        .sys-toast { font-family:'VT323',monospace; font-size:.9rem; letter-spacing:2px; text-transform:uppercase; padding:6px 18px; border:1px solid; background:#050505; white-space:nowrap; pointer-events:none; animation:toast-in-out 3s ease forwards; }
+        .sys-toast-error { border-color:#7f1d1d; color:#ef4444; } .sys-toast-warn { border-color:#78350f; color:#ca8a04; } .sys-toast-info { border-color:#007a2a; color:#00ff41; }
+        @keyframes toast-in-out { 0%{opacity:0;transform:translateY(8px)} 10%{opacity:1;transform:translateY(0)} 80%{opacity:1} 100%{opacity:0;transform:translateY(-4px)} }
+    </style>
+
+
+    <!-- ════════════ MOBILE NAV DRAWER ════════════ -->
+    <div id="mobile-drawer">
+        <div id="mobile-drawer-backdrop" onclick="closeMobileDrawer()"></div>
+        <div id="mobile-drawer-panel">
+            <!-- Drawer header -->
+            <div class="flex items-center justify-between px-4 py-3 border-b border-[#007a2a] flex-shrink-0">
+                <span class="retro-font text-[#00ff41] text-base tracking-widest uppercase">Navigation</span>
+                <button onclick="closeMobileDrawer()" class="text-[#007a2a] hover:text-[#00ff41] retro-font text-2xl leading-none">✕</button>
+            </div>
+
+            <!-- Text channels -->
+            <div class="px-3 pt-4">
+                <div class="sidebar-section-label mb-2"><i class="fas fa-terminal"></i><span>Text Relays</span></div>
+                <div id="mobile-text-channels" class="space-y-1"></div>
+            </div>
+
+            <!-- Voice channels -->
+            <div class="px-3 pt-4">
+                <div class="sidebar-section-label mb-2"><i class="fas fa-satellite-dish"></i><span>Voice Relay</span></div>
+                <div class="space-y-1">
+                    <button id="mobile-voice-channel-btn-comms"
+                            class="voice-channel-btn"
+                            onclick="toggleVoiceChannel('comms'); closeMobileDrawer()">
+                        <i class="fas fa-microphone text-xs"></i>
+                        <span>comms</span>
+                        <span id="mobile-vc-count-comms" class="vc-count hidden">0</span>
+                    </button>
+                    <button class="voice-channel-btn" onclick="openAudioSettings(); closeMobileDrawer();" style="font-size:0.75rem;">
+                        <i class="fas fa-cog text-xs"></i>
+                        <span>Audio Settings</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- DMs -->
+            <div class="px-3 pt-5">
+                <div class="sidebar-section-label mb-2"><i class="fas fa-user-secret"></i><span>Direct Signals</span></div>
+                <div id="mobile-dm-channels" class="space-y-1">
+                    <div class="px-2 text-[9px] text-[#004411] uppercase tracking-widest">No active links...</div>
+                </div>
+            </div>
+
+            <div class="flex-1"></div>
+
+            <!-- Map link -->
+            <div class="px-3 pb-4 pt-4 border-t border-[#007a2a] mt-4">
+                <a href="map.html" class="w-full flex items-center gap-3 px-3 py-2 border border-[#004411] hover:border-[#00ff41] text-[#004411] hover:text-[#00ff41] transition-all retro-font uppercase tracking-wider text-sm">
+                    <i class="fas fa-globe-americas text-sm"></i><span>UPLINK MAP</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════════ MOBILE BOTTOM TAB BAR ════════════ -->
+    <div id="mobile-tab-bar">
+        <button id="mob-tab-menu" onclick="toggleMobileDrawer()" title="Navigation">
+            <span class="tab-badge" id="mob-badge-menu"></span>
+            <i class="fas fa-bars"></i>
+            <span>MENU</span>
+        </button>
+        <button id="mob-tab-chat" class="active" onclick="closeMobileDrawer()" title="Chat">
+            <span class="tab-badge" id="mob-badge-chat"></span>
+            <i class="fas fa-comment-dots"></i>
+            <span>CHAT</span>
+        </button>
+        <button id="mob-tab-crew" onclick="toggleMobileCrew()" title="Crew">
+            <span class="tab-badge" id="mob-badge-crew"></span>
+            <i class="fas fa-users"></i>
+            <span>CREW</span>
+        </button>
+        <button id="mob-tab-profile" onclick="showProfileModal()" title="Profile">
+            <i class="fas fa-user"></i>
+            <span>PROFILE</span>
+        </button>
+    </div>
+
+    <!-- Mobile crew overlay -->
+    <div id="mobile-crew-overlay" class="fixed inset-0 z-[180] hidden flex-col"
+         style="background:#0a0a0a;padding-bottom:52px;">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-[#007a2a]">
+            <span class="retro-font text-[#00ff41] tracking-widest uppercase text-base">Agents Active</span>
+            <button onclick="toggleMobileCrew()" class="text-[#007a2a] hover:text-[#00ff41] retro-font text-2xl">✕</button>
+        </div>
+        <div id="mobile-crew-list" class="flex-1 overflow-y-auto p-3 space-y-1"></div>
+    </div>
+
+
+    <!-- ════════════ AUDIO SETTINGS MODAL ════════════ -->
+    <div id="audio-settings-modal" class="fixed inset-0 bg-black/90 flex items-center justify-center z-[998] hidden p-4"
+         onclick="if(event.target===this)closeAudioSettings()">
+        <div class="crt bg-zinc-950 border-2 border-[#00ff41] w-full max-w-md shadow-[0_0_40px_rgba(0,255,65,0.12)]"
+             onclick="event.stopPropagation()">
+            <div class="flex items-center gap-3 px-5 py-3 border-b border-[#007a2a] bg-[#050505]">
+                <span class="text-[#00ff41] text-sm">◈</span>
+                <span class="retro-font text-[#00ff41] text-sm tracking-[3px] uppercase">Audio Device Config</span>
+                <div class="flex-1"></div>
+                <button onclick="closeAudioSettings()" class="text-[#007a2a] hover:text-[#00ff41] retro-font text-xl transition-colors">✕</button>
+            </div>
+            <div class="px-6 py-5 space-y-5">
+                <!-- Microphone input -->
+                <div>
+                    <label class="block text-[10px] uppercase tracking-widest text-[#007a2a] mb-2 font-bold">
+                        <i class="fas fa-microphone mr-1"></i> INPUT DEVICE (MICROPHONE)
+                    </label>
+                    <select id="audio-input-select"
+                            onchange="onAudioDeviceChange()"
+                            class="w-full bg-black border border-[#004411] focus:border-[#00ff41] text-[#00ff41] retro-font text-sm py-2 px-3 outline-none cursor-pointer"
+                            style="appearance:none;-webkit-appearance:none;">
+                        <option value="">SCANNING DEVICES...</option>
+                    </select>
+                </div>
+                <!-- Speaker output -->
+                <div>
+                    <label class="block text-[10px] uppercase tracking-widest text-[#007a2a] mb-2 font-bold">
+                        <i class="fas fa-volume-up mr-1"></i> OUTPUT DEVICE (SPEAKERS)
+                    </label>
+                    <select id="audio-output-select"
+                            onchange="onAudioDeviceChange()"
+                            class="w-full bg-black border border-[#004411] focus:border-[#00ff41] text-[#00ff41] retro-font text-sm py-2 px-3 outline-none cursor-pointer"
+                            style="appearance:none;-webkit-appearance:none;">
+                        <option value="">SCANNING DEVICES...</option>
+                    </select>
+                </div>
+                <!-- Mic test -->
+                <div>
+                    <label class="block text-[10px] uppercase tracking-widest text-[#007a2a] mb-2 font-bold">
+                        <i class="fas fa-signal mr-1"></i> MIC LEVEL
+                    </label>
+                    <div class="h-3 border border-[#004411] bg-black relative overflow-hidden">
+                        <div id="mic-level-bar" class="h-full bg-[#00ff41] transition-all duration-75" style="width:0%;box-shadow:0 0 8px #00ff41;"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 px-6 pb-5">
+                <button onclick="closeAudioSettings()" class="sys-btn sys-btn-confirm">DONE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════════ SCREEN SOURCE PICKER (Electron) ════════════ -->
+    <div id="screen-picker-modal" class="fixed inset-0 bg-black/95 flex items-center justify-center z-[999] hidden p-4"
+         onclick="if(event.target===this)closeScreenPicker()">
+        <div class="crt bg-zinc-950 border-2 border-[#00ff41] w-full max-w-2xl max-h-[80vh] flex flex-col shadow-[0_0_40px_rgba(0,170,255,0.12)]"
+             onclick="event.stopPropagation()">
+            <div class="flex items-center gap-3 px-5 py-3 border-b border-[#007a2a] bg-[#050505] flex-shrink-0">
+                <span class="text-[#00aaff] text-sm">⬡</span>
+                <span class="retro-font text-[#00aaff] text-sm tracking-[3px] uppercase">Select Screen Source</span>
+                <div class="flex-1"></div>
+                <button onclick="closeScreenPicker()" class="text-[#007a2a] hover:text-[#00ff41] retro-font text-xl transition-colors">✕</button>
+            </div>
+            <div id="screen-picker-grid" class="p-4 grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto flex-1">
+                <div class="text-[#007a2a] retro-font text-center py-8 col-span-full tracking-widest uppercase">SCANNING SOURCES...</div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        /* ── Audio settings select styling ── */
+        #audio-settings-modal select {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%2300ff41' stroke-width='1.5'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            padding-right: 30px;
+        }
+        #audio-settings-modal select option {
+            background: #0a0a0a;
+            color: #00ff41;
+            font-family: 'VT323', monospace;
+        }
+
+        /* ── Per-user volume slider on VC tiles ── */
+        .vc-volume-wrap {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            z-index: 8;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 6px;
+            background: rgba(0,0,0,0.75);
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+        .vc-tile:hover .vc-volume-wrap { opacity: 1; }
+        .vc-volume-wrap i {
+            font-size: 0.55rem;
+            color: var(--primary-green);
+            flex-shrink: 0;
+            width: 10px;
+            text-align: center;
+        }
+        .vc-volume-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            flex: 1;
+            height: 3px;
+            background: #1a1a1a;
+            outline: none;
+            cursor: pointer;
+        }
+        .vc-volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 8px; height: 8px;
+            background: #00ff41;
+            border: none;
+            cursor: pointer;
+        }
+        .vc-volume-slider::-moz-range-thumb {
+            width: 8px; height: 8px;
+            background: #00ff41;
+            border: none;
+            border-radius: 0;
+            cursor: pointer;
+        }
+        .vc-volume-label {
+            font-family: 'VT323', monospace;
+            font-size: 0.55rem;
+            color: var(--terminal-dim);
+            width: 24px;
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        /* ── DM hide/close button ── */
+        .dm-btn-wrap { position: relative; }
+        .dm-hide-btn {
+            position: absolute;
+            right: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: none;
+            color: #333;
+            font-family: 'VT323', monospace;
+            font-size: 0.7rem;
+            cursor: pointer;
+            padding: 2px 5px;
+            line-height: 1;
+            opacity: 0;
+            transition: opacity 0.15s, color 0.15s;
+            z-index: 2;
+        }
+        .dm-btn-wrap:hover .dm-hide-btn { opacity: 1; }
+        .dm-hide-btn:hover { color: #ff4444; }
+
+        /* ── Header unread notification badge ── */
+        .header-unread-badge {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            background: rgba(0, 255, 65, 0.08);
+            border: 1px solid #00ff41;
+            cursor: pointer;
+            transition: all 0.2s;
+            animation: unread-pulse 2s ease-in-out infinite;
+            font-family: 'VT323', monospace;
+            font-size: 0.8rem;
+            color: #00ff41;
+            letter-spacing: 1px;
+        }
+        .header-unread-badge:hover {
+            background: rgba(0, 255, 65, 0.15);
+            box-shadow: 0 0 12px rgba(0, 255, 65, 0.25);
+        }
+        .header-unread-badge.hidden { display: none !important; }
+        .header-unread-badge i { font-size: 0.7rem; }
+        .header-unread-badge span {
+            min-width: 14px;
+            text-align: center;
+            font-weight: bold;
+        }
+        @keyframes unread-pulse {
+            0%, 100% { border-color: #00ff41; }
+            50% { border-color: #007a2a; }
+        }
+
+        /* ── File attachment cards ── */
+        .file-attach-meta {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-family: 'VT323', monospace;
+            font-size: 0.75rem;
+            color: #007a2a;
+            letter-spacing: 1px;
+        }
+        .file-attach-meta i { font-size: 0.65rem; }
+        .file-attach-size { color: #555; }
+        .file-attach-dl {
+            color: #004411;
+            transition: color 0.15s;
+            margin-left: 4px;
+        }
+        .file-attach-dl:hover { color: #00ff41; }
+
+        .file-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            max-width: 380px;
+            padding: 10px 14px;
+            margin-top: 6px;
+            background: #111;
+            border: 1px solid #1a1a1a;
+            border-left: 3px solid #007a2a;
+            transition: border-color 0.15s;
+        }
+        .file-card:hover { border-color: #00ff41; }
+        .file-card-icon {
+            width: 36px; height: 36px;
+            display: flex; align-items: center; justify-content: center;
+            background: #0a0a0a;
+            border: 1px solid #1a1a1a;
+            color: #007a2a;
+            font-size: 1rem;
+            flex-shrink: 0;
+        }
+        .file-card:hover .file-card-icon { color: #00ff41; border-color: #004411; }
+        .file-card-info { flex: 1; min-width: 0; }
+        .file-card-name {
+            font-family: 'VT323', monospace;
+            font-size: 0.9rem;
+            color: #00aaff;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .file-card-detail {
+            font-family: 'VT323', monospace;
+            font-size: 0.7rem;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .file-card-dl {
+            color: #004411;
+            font-size: 0.9rem;
+            transition: color 0.15s;
+            flex-shrink: 0;
+            padding: 4px;
+        }
+        .file-card-dl:hover { color: #00ff41; }
+
+        /* ── Chat link styling ── */
+        .chat-link {
+            color: #00aaff;
+            text-decoration: none;
+            word-break: break-all;
+            transition: color 0.15s, text-decoration 0.15s;
+        }
+        .chat-link:hover {
+            color: #4dc4ff;
+            text-decoration: underline;
+        }
+
+        /* ── Link embed cards (Discord-style) ── */
+        .embed-container {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        .embed-card {
+            position: relative;
+            max-width: 420px;
+            background: #111111;
+            border: 1px solid #1a1a1a;
+            border-left: 3px solid #00ff41;
+            border-radius: 0;
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            transition: border-color 0.2s;
+        }
+        .embed-card:hover {
+            border-color: #333;
+        }
+        .embed-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .embed-favicon {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            object-fit: contain;
+        }
+        .embed-site-name {
+            font-family: 'VT323', monospace;
+            font-size: 0.7rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+        }
+        .embed-title {
+            font-family: 'VT323', monospace;
+            font-size: 1rem;
+            color: #00aaff;
+            text-decoration: none;
+            line-height: 1.2;
+            cursor: pointer;
+            display: block;
+        }
+        .embed-title:hover {
+            text-decoration: underline;
+        }
+        .embed-description {
+            font-family: 'VT323', monospace;
+            font-size: 0.85rem;
+            color: #999;
+            line-height: 1.3;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .embed-thumb-wrap {
+            margin-top: 4px;
+        }
+        .embed-thumb {
+            max-width: 100%;
+            max-height: 200px;
+            object-fit: cover;
+            border: 1px solid #1a1a1a;
+            cursor: pointer;
+            transition: border-color 0.15s;
+            display: block;
+        }
+        .embed-thumb:hover {
+            border-color: #00aaff;
+        }
+        .embed-video-wrap {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            margin-top: 4px;
+            background: #000;
+            border: 1px solid #1a1a1a;
+        }
+        .embed-video-iframe,
+        .embed-video-native {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .embed-dismiss {
+            position: absolute;
+            top: 4px; right: 4px;
+            background: transparent;
+            border: none;
+            color: #555;
+            font-size: 0.7rem;
+            cursor: pointer;
+            padding: 2px 4px;
+            line-height: 1;
+            opacity: 0;
+            transition: opacity 0.15s, color 0.15s;
+            font-family: 'VT323', monospace;
+        }
+        .embed-card:hover .embed-dismiss { opacity: 1; }
+        .embed-dismiss:hover { color: #ff4444; }
+
+        @media (max-width: 640px) {
+            .embed-card { max-width: 100%; }
+        }
+
+        /* ── Screen picker source tile ── */
+        .screen-source-tile {
+            border: 1px solid #1a1a1a;
+            background: #0a0a0a;
+            cursor: pointer;
+            padding: 6px;
+            transition: border-color 0.15s, box-shadow 0.15s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+        .screen-source-tile:hover {
+            border-color: #00aaff;
+            box-shadow: 0 0 12px rgba(0,170,255,0.15);
+        }
+        .screen-source-tile img {
+            width: 100%;
+            aspect-ratio: 16/9;
+            object-fit: contain;
+            background: #000;
+            border: 1px solid #1a1a1a;
+        }
+        .screen-source-tile span {
+            font-family: 'VT323', monospace;
+            font-size: 0.7rem;
+            color: #007a2a;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            text-align: center;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            width: 100%;
+        }
+        .screen-source-tile:hover span { color: #00aaff; }
+    </style>
+
+    <script src="script.js" defer></script>
+    <script src="desktop-enhancements.js" defer></script>
+</body>
+</html>

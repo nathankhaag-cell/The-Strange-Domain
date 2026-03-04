@@ -1,0 +1,533 @@
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+:root {
+    --primary-green: #00ff41;
+    --dark-bg: #0a0a0a;
+    --panel-bg: #111111;
+    --terminal-dim: #007a2a;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    /* Firefox scrollbar — hardcoded so it always resolves */
+    scrollbar-width: thin;
+    scrollbar-color: #007a2a #050505;
+}
+
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: var(--dark-bg);
+    color: var(--primary-green);
+    font-family: 'VT323', monospace;
+}
+
+/* ────────────────────────────────────────────────
+   CUSTOM SCROLLBARS — hardcoded hex values
+   (CSS variables don't reliably resolve inside
+    pseudo-element contexts in all browsers)
+───────────────────────────────────────────────── */
+::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+::-webkit-scrollbar-track {
+    background: #050505;
+    border-left: 1px solid #003018;
+}
+::-webkit-scrollbar-thumb {
+    background: #007a2a;
+    border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #00ff41;
+    box-shadow: 0 0 8px #00ff41;
+}
+::-webkit-scrollbar-corner {
+    background: #050505;
+}
+
+/* ────────────────────────────────────────────────
+   CRT & TERMINAL EFFECTS
+───────────────────────────────────────────────── */
+.crt {
+    position: relative;
+    overflow: hidden;
+}
+
+.crt::before {
+    content: " ";
+    display: block;
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+                linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    z-index: 100;
+    background-size: 100% 4px, 3px 100%;
+    pointer-events: none;
+}
+
+.crt::after {
+    content: " ";
+    display: block;
+    position: absolute;
+    inset: 0;
+    background: rgba(18, 16, 16, 0.1);
+    opacity: 0;
+    z-index: 101;
+    pointer-events: none;
+    animation: flicker 0.15s infinite;
+}
+
+@keyframes flicker {
+    0%   { opacity: 0.27; }
+    100% { opacity: 0.3;  }
+}
+
+.terminal-glow {
+    text-shadow: 0 0 10px var(--primary-green);
+}
+
+/* Cursor Animation */
+.cursor {
+    display: inline-block;
+    width: 10px;
+    height: 1.2rem;
+    background: var(--primary-green);
+    margin-left: 5px;
+    animation: blink 0.8s step-end infinite;
+    vertical-align: middle;
+}
+
+@keyframes blink {
+    from, to { background: transparent; }
+    50%       { background: var(--primary-green); }
+}
+
+/* ────────────────────────────────────────────────
+   UI COMPONENTS
+───────────────────────────────────────────────── */
+.auth-input {
+    background: transparent !important;
+    border: none !important;
+    border-bottom: 2px solid var(--terminal-dim) !important;
+    font-size: 1.8rem !important;
+    padding-left: 0 !important;
+    border-radius: 0 !important;
+    color: var(--primary-green) !important;
+    font-family: 'VT323', monospace;
+}
+
+.auth-input:focus {
+    border-bottom-color: var(--primary-green) !important;
+    box-shadow: none !important;
+    outline: none;
+}
+
+.btn-text {
+    width: fit-content !important;
+    padding: 0.8rem 2.5rem !important;
+    background: transparent !important;
+    border: 2px solid var(--primary-green) !important;
+    color: var(--primary-green) !important;
+    cursor: pointer;
+    font-size: 1.2rem;
+    font-family: 'VT323', monospace;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.btn-text:hover {
+    background: var(--primary-green) !important;
+    color: black !important;
+    box-shadow: 0 0 15px var(--primary-green);
+}
+
+.auth-error-msg {
+    display: flex;
+    align-items: center;
+}
+
+/* ────────────────────────────────────────────────
+   LOGIN PAGE
+───────────────────────────────────────────────── */
+@media (max-width: 767px) {
+    .auth-page {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+    .login-card {
+        border: 2px solid var(--primary-green);
+        background: #050505;
+        padding: 1.5rem;
+        width: 100%;
+        max-width: 400px;
+        position: relative;
+        z-index: 30;
+    }
+}
+
+@media (min-width: 768px) {
+    .auth-page {
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        display: block;
+    }
+    .login-card {
+        height: 100vh;
+        width: 100vw;
+        border: none;
+        background: black;
+        padding: 3rem 5rem !important;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        position: relative;
+        z-index: 30;
+    }
+    .title-text {
+        font-size: clamp(4rem, 10vw, 7rem) !important;
+        text-align: left;
+    }
+    .label-text {
+        font-size: 1rem !important;
+        color: var(--terminal-dim);
+    }
+}
+
+.retro-font { font-family: 'VT323', monospace; }
+
+/* ────────────────────────────────────────────────
+   REACTION PILLS
+───────────────────────────────────────────────── */
+.reaction-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px 1px 6px;
+    font-size: 0.85rem;
+    border: 1px solid #007a2a;
+    color: #007a2a;
+    background: transparent;
+    cursor: pointer;
+    font-family: 'VT323', monospace;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    line-height: 1.6;
+}
+.reaction-pill:hover,
+.reaction-pill.reacted {
+    border-color: #00ff41;
+    color: #00ff41;
+    background: rgba(0, 255, 65, 0.06);
+}
+
+/* ────────────────────────────────────────────────
+   EMOJI PICKER
+───────────────────────────────────────────────── */
+#emoji-picker {
+    position: fixed;
+    z-index: 300;
+    background: #0d0d0d;
+    border: 1px solid #007a2a;
+    box-shadow: 0 0 20px rgba(0, 255, 65, 0.08);
+    display: flex;
+    gap: 2px;
+    padding: 6px;
+}
+#emoji-picker.hidden { display: none; }
+.emoji-opt {
+    font-size: 1.4rem;
+    padding: 3px 5px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: border-color 0.1s, background 0.1s;
+    border-radius: 2px;
+}
+.emoji-opt:hover {
+    border-color: #00ff41;
+    background: rgba(0, 255, 65, 0.07);
+}
+
+/* ────────────────────────────────────────────────
+   INLINE EDIT TEXTAREA
+───────────────────────────────────────────────── */
+.edit-textarea {
+    width: 100%;
+    background: rgba(0, 255, 65, 0.03);
+    border: 1px solid #007a2a;
+    border-bottom-color: #00ff41;
+    color: #00ff41;
+    font-family: 'VT323', monospace;
+    font-size: 1.15rem;
+    padding: 6px 8px;
+    outline: none;
+    resize: none;
+    min-height: 2.4rem;
+    line-height: 1.4;
+}
+.edit-textarea:focus { border-color: #00ff41; }
+
+/* ────────────────────────────────────────────────
+   MESSAGE CHROME
+───────────────────────────────────────────────── */
+.edited-tag {
+    font-size: 0.68rem;
+    color: #007a2a;
+    letter-spacing: 1px;
+    margin-left: 4px;
+    font-family: 'VT323', monospace;
+}
+
+.react-trigger {
+    opacity: 0;
+    transition: opacity 0.1s;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #007a2a;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 1px 6px;
+    font-family: 'VT323', monospace;
+    letter-spacing: 1px;
+    white-space: nowrap;
+}
+.react-trigger:hover {
+    border-color: #007a2a;
+    color: #00ff41;
+}
+.message:hover .react-trigger { opacity: 1; }
+.message:hover .msg-controls  { opacity: 1 !important; }
+
+/* ────────────────────────────────────────────────
+   CREW LIST & STATUS DOTS
+───────────────────────────────────────────────── */
+.status-dot-online {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #00ff41;
+    border: 1.5px solid #0a0a0a;
+    box-shadow: 0 0 5px #00ff41;
+    flex-shrink: 0;
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+}
+
+.status-dot-offline {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #7f0000;
+    border: 1.5px solid #0a0a0a;
+    box-shadow: 0 0 4px rgba(200, 0, 0, 0.5);
+    flex-shrink: 0;
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+}
+
+.dm-btn {
+    font-size: 0.7rem;
+    padding: 1px 6px;
+    border: 1px solid transparent;
+    color: #007a2a;
+    background: transparent;
+    font-family: 'VT323', monospace;
+    letter-spacing: 1px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+    flex-shrink: 0;
+}
+.crew-item:hover .dm-btn { opacity: 1; border-color: #007a2a; }
+.dm-btn:hover             { border-color: #00ff41 !important; color: #00ff41 !important; }
+
+/* Offline entries are dimmed */
+.crew-item-offline { opacity: 0.45; }
+.crew-item-offline:hover { opacity: 0.7; transition: opacity 0.15s; }
+
+/* ════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE — applied when JS detects touch/small screen
+   The <body> gets class "mobile-mode" on mobile devices.
+   ════════════════════════════════════════════════════════════ */
+
+/* ── Mobile nav drawer overlay ── */
+#mobile-drawer {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    pointer-events: none;
+}
+#mobile-drawer-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    opacity: 0;
+    transition: opacity 0.25s;
+    pointer-events: none;
+}
+#mobile-drawer-panel {
+    position: relative;
+    width: 80vw;
+    max-width: 280px;
+    height: 100%;
+    background: #0a0a0a;
+    border-right: 2px solid #00ff41;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.16,1,0.3,1);
+    overflow-y: auto;
+    z-index: 1;
+}
+#mobile-drawer.open #mobile-drawer-backdrop {
+    opacity: 1;
+    pointer-events: all;
+}
+#mobile-drawer.open #mobile-drawer-panel {
+    transform: translateX(0);
+}
+#mobile-drawer.open { pointer-events: all; }
+
+/* ── Mobile bottom tab bar ── */
+#mobile-tab-bar {
+    display: none;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    z-index: 150;
+    background: #050505;
+    border-top: 1px solid #007a2a;
+    height: 52px;
+    align-items: stretch;
+}
+#mobile-tab-bar button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    border-right: 1px solid #0d0d0d;
+    color: #007a2a;
+    font-family: 'VT323', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    transition: color 0.15s, background 0.15s;
+    padding: 4px 2px;
+    position: relative;
+}
+#mobile-tab-bar button:last-child { border-right: none; }
+#mobile-tab-bar button.active { color: #00ff41; background: rgba(0,255,65,0.05); }
+#mobile-tab-bar button i { font-size: 1.1rem; }
+#mobile-tab-bar .tab-badge {
+    position: absolute;
+    top: 5px; right: calc(50% - 14px);
+    width: 7px; height: 7px;
+    background: #00ff41;
+    border-radius: 50%;
+    box-shadow: 0 0 5px #00ff41;
+    display: none;
+}
+#mobile-tab-bar .tab-badge.show { display: block; }
+
+/* ── mobile-mode body adjustments ── */
+body.mobile-mode {
+    overflow: hidden;
+}
+
+/* Hide desktop sidebars on mobile */
+body.mobile-mode .crt.hidden.md\:flex,
+body.mobile-mode .crt.hidden.lg\:flex {
+    display: none !important;
+}
+
+/* ── MOBILE INPUT BAR ──────────────────────────────────────
+   sticky doesn't work inside overflow:hidden parents.
+   Use position:fixed so the bar is always reachable.
+   It sits just above the 52px tab bar.
+   content-area gets bottom padding so messages aren't hidden. */
+body.mobile-mode #chat-input-bar {
+    position: fixed !important;
+    bottom: 52px !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 140 !important;
+    height: 56px !important;
+    padding: 0 10px !important;
+    background: #0a0a0a !important;
+    border-top: 1px solid #00ff41 !important;
+}
+/* messages need to clear: fixed input (56px) + tab bar (52px) = 108px */
+body.mobile-mode #content-area {
+    padding-bottom: 116px !important;
+}
+/* main-viewport must NOT add extra bottom padding — input is fixed */
+body.mobile-mode #main-viewport {
+    padding-bottom: 0 !important;
+}
+
+/* Make messages slightly larger tap area */
+body.mobile-mode .message {
+    padding: 10px 12px !important;
+    margin-bottom: 4px !important;
+}
+body.mobile-mode .message img.w-10 {
+    width: 36px !important;
+    height: 36px !important;
+}
+/* Bigger input text on mobile */
+body.mobile-mode #message-input {
+    font-size: 1.1rem !important;
+    height: 40px !important;
+}
+
+/* ── Mobile map adjustments ── */
+body.mobile-mode .map-agent-panel {
+    display: none !important;
+}
+body.mobile-mode #mobile-map-pill {
+    display: flex !important;
+}
+
+/* ── Mobile voice panel: fix it above the input bar ── */
+/* The panel is in-flow on desktop but must be fixed on mobile
+   because the input bar itself is fixed. JS (vcUpdateMobileInputOffset)
+   sets the exact bottom value after each state change. */
+body.mobile-mode #voice-panel {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 108px !important; /* tab bar (52) + input bar (56) — JS overrides this */
+    z-index: 130 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+}
+body.mobile-mode #voice-panel.open {
+    max-height: 45vh !important;
+    overflow: visible !important;
+}
+body.mobile-mode #voice-panel.open.minimized {
+    max-height: 44px !important;
+    overflow: hidden !important;
+}
+/* Compact voice tiles on mobile */
+body.mobile-mode .vc-tile {
+    width: 120px !important;
+    height: 90px !important;
+}
+body.mobile-mode .vc-tile.screenshare {
+    width: 240px !important;
+    height: 150px !important;
+}

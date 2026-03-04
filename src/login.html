@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TERMINAL ACCESS – THE STRANGE DOMAIN</title>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --green: #00ff41;
+            --dim: #007a2a;
+            --bg: #080808;
+            --panel: #0d0d0d;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            height: 100%;
+            background: var(--bg);
+            color: var(--green);
+            font-family: 'VT323', monospace;
+            overflow: hidden;
+        }
+
+        /* ── CRT Overlay ── */
+        .crt-overlay {
+            pointer-events: none;
+            position: fixed;
+            inset: 0;
+            z-index: 999;
+            background:
+                linear-gradient(rgba(0,0,0,0) 50%, rgba(0,0,0,0.22) 50%),
+                linear-gradient(90deg, rgba(255,0,0,0.04), rgba(0,255,0,0.02), rgba(0,0,255,0.04));
+            background-size: 100% 3px, 3px 100%;
+            animation: flicker 0.12s infinite;
+        }
+        @keyframes flicker {
+            0%  { opacity: 0.96; }
+            50% { opacity: 1.00; }
+            100%{ opacity: 0.97; }
+        }
+
+        /* ── Left Brand Panel ── */
+        .brand-panel {
+            background: var(--panel);
+            border-right: 1px solid var(--dim);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 3rem 3.5rem;
+        }
+
+        /* Animated scanline sweep on brand panel */
+        .brand-panel::after {
+            content: '';
+            position: absolute;
+            top: -100%;
+            left: 0;
+            right: 0;
+            height: 40%;
+            background: linear-gradient(transparent, rgba(0,255,65,0.03), transparent);
+            animation: scanline 6s linear infinite;
+            pointer-events: none;
+        }
+        @keyframes scanline {
+            0%   { top: -40%; }
+            100% { top: 140%; }
+        }
+
+        .brand-title {
+            font-size: clamp(3.5rem, 6vw, 5.5rem);
+            line-height: 0.9;
+            color: var(--green);
+            text-shadow: 0 0 20px rgba(0,255,65,0.6), 0 0 60px rgba(0,255,65,0.2);
+            letter-spacing: -1px;
+        }
+
+        .brand-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1px;
+            border: 1px solid var(--dim);
+            margin-top: 2rem;
+        }
+        .brand-grid-cell {
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--dim);
+            font-size: 0.65rem;
+            color: var(--dim);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        .brand-grid-cell span {
+            display: block;
+            font-size: 1.4rem;
+            color: var(--green);
+            margin-top: 0.2rem;
+        }
+
+        .corner-mark {
+            font-size: 0.6rem;
+            color: var(--dim);
+            letter-spacing: 3px;
+            text-transform: uppercase;
+        }
+
+        /* ── Right Form Panel ── */
+        .form-panel {
+            background: var(--bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            position: relative;
+        }
+
+        .form-box {
+            width: 100%;
+            max-width: 420px;
+        }
+
+        /* Tabs */
+        .tab-bar {
+            display: flex;
+            gap: 0;
+            border: 1px solid var(--dim);
+            margin-bottom: 2.5rem;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            font-family: 'VT323', monospace;
+            font-size: 1.2rem;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            background: transparent;
+            color: var(--dim);
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .tab-btn.active {
+            color: var(--bg);
+            background: var(--green);
+        }
+        .tab-btn:not(.active):hover {
+            color: var(--green);
+        }
+
+        /* Inputs */
+        .field-group { margin-bottom: 1.75rem; }
+        .field-label {
+            display: block;
+            font-size: 0.7rem;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: var(--dim);
+            margin-bottom: 0.4rem;
+        }
+        .field-input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid var(--dim);
+            color: var(--green);
+            font-family: 'VT323', monospace;
+            font-size: 1.6rem;
+            padding: 0.3rem 0;
+            outline: none;
+            transition: border-color 0.2s;
+            caret-color: var(--green);
+        }
+        .field-input::placeholder { color: var(--dim); }
+        .field-input:focus { border-bottom-color: var(--green); }
+
+        /* Submit button */
+        .submit-btn {
+            width: 100%;
+            margin-top: 2rem;
+            padding: 0.9rem 1.5rem;
+            background: transparent;
+            border: 1px solid var(--green);
+            color: var(--green);
+            font-family: 'VT323', monospace;
+            font-size: 1.3rem;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.15s;
+            position: relative;
+            overflow: hidden;
+            z-index: 0;
+        }
+        .submit-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--green);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.2s ease;
+            z-index: -1;
+        }
+        .submit-btn:hover {
+            color: var(--bg);
+            box-shadow: 0 0 20px rgba(0,255,65,0.4);
+        }
+        .submit-btn:hover::before { transform: scaleX(1); }
+
+        .error-msg {
+            font-size: 1rem;
+            color: #ff3333;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-top: 0.75rem;
+            min-height: 1.5rem;
+        }
+
+        /* Status line */
+        .status-line {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.65rem;
+            letter-spacing: 2px;
+            color: var(--dim);
+            text-transform: uppercase;
+            margin-bottom: 2rem;
+        }
+        .status-dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 6px var(--green);
+            animation: pulse 2s ease infinite;
+            flex-shrink: 0;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.3; }
+        }
+
+        /* Corner decorations on form panel */
+        .corner { position: absolute; width: 20px; height: 20px; }
+        .corner-tl { top: 1.5rem; left: 1.5rem; border-top: 1px solid var(--dim); border-left: 1px solid var(--dim); }
+        .corner-tr { top: 1.5rem; right: 1.5rem; border-top: 1px solid var(--dim); border-right: 1px solid var(--dim); }
+        .corner-bl { bottom: 1.5rem; left: 1.5rem; border-bottom: 1px solid var(--dim); border-left: 1px solid var(--dim); }
+        .corner-br { bottom: 1.5rem; right: 1.5rem; border-bottom: 1px solid var(--dim); border-right: 1px solid var(--dim); }
+
+        /* Blink cursor */
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0; }
+        }
+        .cursor {
+            display: inline-block;
+            width: 9px; height: 1.1rem;
+            background: var(--green);
+            vertical-align: middle;
+            animation: blink 0.8s step-end infinite;
+            margin-left: 3px;
+        }
+
+        /* ── Mobile ── */
+        @media (max-width: 767px) {
+            .brand-panel { display: none !important; }
+            .layout-grid { grid-template-columns: 1fr !important; height: 100dvh !important; }
+            .form-panel {
+                padding: 2rem 1.25rem 1.5rem;
+                align-items: flex-start;
+                overflow-y: auto;
+            }
+            .form-box { max-width: 100%; }
+            .field-input { font-size: 1.4rem; padding: 0.5rem 0; }
+            .submit-btn {
+                padding: 1rem 1.5rem;
+                font-size: 1.2rem;
+                margin-top: 1.5rem;
+            }
+            .tab-btn { font-size: 1.1rem; padding: 0.9rem 1rem; }
+            .field-group { margin-bottom: 1.25rem; }
+            html, body { overflow: auto; }
+        }
+    </style>
+    <style>
+        /* Desktop app: title bar drag region */
+        .brand-panel { -webkit-app-region: drag; }
+        .brand-panel button, .brand-panel a, .brand-panel input { -webkit-app-region: no-drag; }
+        .form-panel { -webkit-app-region: no-drag; }
+    </style>
+</head>
+<body>
+
+<div class="crt-overlay"></div>
+<audio id="keystroke-sound" src="https://www.soundjay.com/communication/typewriter-key-1.mp3" preload="auto"></audio>
+
+<div class="layout-grid" style="display:grid; grid-template-columns: 1fr 1fr; height:100vh;">
+
+    <!-- ── LEFT: Brand Panel ── -->
+    <div class="brand-panel">
+        <div>
+            <div class="corner-mark mb-6">S GRADE ANOMALY — EST. 1974 — SECTOR 7</div>
+            <div class="brand-title">THE<br>STRANGE<br>DOMAIN<span class="cursor"></span></div>
+            <p style="color:var(--dim); font-size:0.75rem; letter-spacing:3px; text-transform:uppercase; margin-top:1.5rem; line-height:1.8;">
+                PROPERTY OF HARLAN-VOSS CORPORATION<br>
+                CLASSIFICATION: TOP SECRET/SENSITIVE COMPARTMENTED INFORMATION
+            </p>
+        </div>
+
+        <div>
+            <div class="brand-grid">
+                <div class="brand-grid-cell">Status<span>ONLINE</span></div>
+                <div class="brand-grid-cell">Uptime<span>99.7%</span></div>
+                <div class="brand-grid-cell">Zone<span>∅-7</span></div>
+                <div class="brand-grid-cell">Crew<span id="crew-count">—</span></div>
+                <div class="brand-grid-cell">Signal<span>ACTIVE</span></div>
+                <div class="brand-grid-cell">Year<span>1974</span></div>
+            </div>
+            <div class="corner-mark" style="margin-top:2rem;">
+                © HARLAN-VOSS CORPORATION CORPORATION — ALL FREQUENCIES MONITORED
+            </div>
+        </div>
+    </div>
+
+    <!-- ── RIGHT: Form Panel ── -->
+    <div class="form-panel">
+        <div class="corner corner-tl"></div>
+        <div class="corner corner-tr"></div>
+        <div class="corner corner-bl"></div>
+        <div class="corner corner-br"></div>
+
+        <div class="form-box">
+
+            <div class="status-line">
+                <div class="status-dot"></div>
+                SECURE UPLINK ESTABLISHED — AWAITING CREDENTIALS
+            </div>
+
+            <div class="tab-bar">
+                <button id="login-tab-btn" class="tab-btn active" onclick="setAuthMode('login')">LOGIN</button>
+                <button id="signup-tab-btn" class="tab-btn" onclick="setAuthMode('signup')">REGISTER</button>
+            </div>
+
+            <!-- Login Form -->
+            <div id="login-form">
+                <div class="field-group">
+                    <label class="field-label">IDENTIFICATION_EMAIL</label>
+                    <input id="login-email" type="email" placeholder=">_" class="field-input" required>
+                </div>
+                <div class="field-group">
+                    <label class="field-label">ACCESS_CODE</label>
+                    <input id="login-password" type="password" placeholder=">_" class="field-input" required
+                           onkeydown="if(event.key==='Enter') performLogin()">
+                </div>
+                <button onclick="performLogin()" class="submit-btn">TRANSMIT ACCESS CODE</button>
+                <div id="login-error" class="error-msg"></div>
+            </div>
+
+            <!-- Signup Form -->
+            <div id="signup-form" class="hidden">
+                <div class="field-group">
+                    <label class="field-label">ASSIGN_CALLSIGN</label>
+                    <input id="signup-callsign" type="text" placeholder=">_" class="field-input">
+                </div>
+                <div class="field-group">
+                    <label class="field-label">RECOVERY_MAIL</label>
+                    <input id="signup-email" type="email" placeholder=">_" class="field-input">
+                </div>
+                <div class="field-group">
+                    <label class="field-label">NEW_PASSWORD</label>
+                    <input id="signup-password" type="password" placeholder=">_" class="field-input"
+                           onkeydown="if(event.key==='Enter') performSignup()">
+                </div>
+                <button onclick="performSignup()" class="submit-btn">ESTABLISH LINK</button>
+                <div id="signup-error" class="error-msg"></div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyCJ7NMgvML-RAUNgMDlrKMrnBV9bg8PqIs",
+        authDomain: "the-strange-domain.firebaseapp.com",
+        databaseURL: "https://the-strange-domain-default-rtdb.firebaseio.com",
+        projectId: "the-strange-domain",
+        storageBucket: "the-strange-domain.firebasestorage.app",
+        messagingSenderId: "906271570951",
+        appId: "1:906271570951:web:8a0a8ca899a8cd962dbea2"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const database = firebase.database();
+
+    // Live crew count on brand panel
+    database.ref('users').orderByChild('online').equalTo(true).on('value', snap => {
+        const el = document.getElementById('crew-count');
+        if (el) el.textContent = snap.numChildren() || '0';
+    });
+
+    function setAuthMode(mode) {
+        const loginForm  = document.getElementById("login-form");
+        const signupForm = document.getElementById("signup-form");
+        const loginBtn   = document.getElementById("login-tab-btn");
+        const signupBtn  = document.getElementById("signup-tab-btn");
+
+        if (mode === "login") {
+            loginForm.classList.remove("hidden");
+            signupForm.classList.add("hidden");
+            loginBtn.classList.add("active");
+            signupBtn.classList.remove("active");
+        } else {
+            loginForm.classList.add("hidden");
+            signupForm.classList.remove("hidden");
+            signupBtn.classList.add("active");
+            loginBtn.classList.remove("active");
+        }
+    }
+
+    // ── IP Geolocation — called on every successful login/signup ──
+    async function captureLocation(uid) {
+        try {
+            const res  = await fetch('https://ipapi.co/json/');
+            const data = await res.json();
+            if (data && data.latitude && data.longitude) {
+                await database.ref(`users/${uid}/location`).set({
+                    lat:     data.latitude,
+                    lon:     data.longitude,
+                    city:    data.city         || '',
+                    country: data.country_name || '',
+                    ip:      data.ip            || '',
+                    updated: Date.now()
+                });
+            }
+        } catch (e) {
+            // Silently ignore — location is non-critical
+        }
+    }
+
+    async function performLogin() {
+        const email    = document.getElementById("login-email").value.trim();
+        const password = document.getElementById("login-password").value;
+        const errorEl  = document.getElementById("login-error");
+        errorEl.textContent = "";
+
+        try {
+            const cred = await auth.signInWithEmailAndPassword(email, password);
+            await captureLocation(cred.user.uid);
+            window.location.replace("./index.html");
+        } catch (err) {
+            errorEl.textContent = "ERR: ACCESS_DENIED — INVALID CREDENTIALS";
+        }
+    }
+
+    async function performSignup() {
+        const callsign = document.getElementById("signup-callsign").value.trim().toUpperCase();
+        const email    = document.getElementById("signup-email").value.trim();
+        const pw       = document.getElementById("signup-password").value;
+        const errorEl  = document.getElementById("signup-error");
+        errorEl.textContent = "";
+
+        if (!callsign || !email || !pw) {
+            errorEl.textContent = "ERR: ALL FIELDS REQUIRED";
+            return;
+        }
+
+        try {
+            const cred = await auth.createUserWithEmailAndPassword(email, pw);
+            const uid  = cred.user.uid;
+            await database.ref(`callsigns/${callsign}`).set(uid);
+            await database.ref(`users/${uid}`).set({
+                callsign,
+                email,
+                title: "VOID DRIFTER",
+                createdAt: firebase.database.ServerValue.TIMESTAMP
+            });
+            await captureLocation(uid);
+            window.location.replace("./index.html");
+        } catch (err) {
+            errorEl.textContent = "ERR: LINK_FAILED — " + (err.code || "UNKNOWN");
+        }
+    }
+</script>
+</body>
+</html>
