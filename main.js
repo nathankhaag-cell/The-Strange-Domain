@@ -189,6 +189,54 @@ function createMainWindow() {
         return allowed.includes(permission);
     });
 
+    // ── Spellchecker — use OS built-in via Electron session ──
+    // Detects the user's system language automatically
+    session.defaultSession.setSpellCheckerEnabled(true);
+    // No need to set languages — Electron auto-detects from OS locale
+
+    // Right-click context menu: show spell suggestions + standard edit actions
+    mainWindow.webContents.on('context-menu', (event, params) => {
+        const menuTemplate = [];
+
+        // Spell suggestions (only when a misspelled word is selected)
+        if (params.misspelledWord) {
+            if (params.dictionaryWordSuggestions.length > 0) {
+                params.dictionaryWordSuggestions.slice(0, 5).forEach(suggestion => {
+                    menuTemplate.push({
+                        label: suggestion,
+                        click: () => mainWindow.webContents.replaceMisspelling(suggestion)
+                    });
+                });
+            } else {
+                menuTemplate.push({ label: 'No suggestions', enabled: false });
+            }
+            menuTemplate.push(
+                { type: 'separator' },
+                {
+                    label: 'Add to dictionary',
+                    click: () => session.defaultSession.addWordToSpellCheckerDictionary(params.misspelledWord)
+                },
+                { type: 'separator' }
+            );
+        }
+
+        // Standard edit actions — always available on editable fields
+        if (params.isEditable || params.editFlags.canCopy) {
+            menuTemplate.push(
+                { label: 'Cut',   role: 'cut',   enabled: params.editFlags.canCut },
+                { label: 'Copy',  role: 'copy',  enabled: params.editFlags.canCopy },
+                { label: 'Paste', role: 'paste', enabled: params.editFlags.canPaste },
+                { type: 'separator' },
+                { label: 'Select All', role: 'selectAll' }
+            );
+        }
+
+        if (menuTemplate.length > 0) {
+            const menu = Menu.buildFromTemplate(menuTemplate);
+            menu.popup({ window: mainWindow });
+        }
+    });
+
     // ── Window close → quit the app ──
     mainWindow.on('close', () => {
         isQuitting = true;
