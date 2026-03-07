@@ -1983,6 +1983,19 @@ async function vcInitiateCall(targetUid) {
     } catch (e) { console.error('Offer error:', e); }
 }
 
+/** Send a new offer to renegotiate after adding/removing tracks mid-call */
+async function vcRenegotiate(remoteUid, pc) {
+    if (!pc || pc.signalingState === 'closed') return;
+    try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await db.ref(`voice-rooms/${vcRoomId}/signals/${remoteUid}/${currentUID}/offer`).set({
+            type: offer.type,
+            sdp:  offer.sdp
+        });
+    } catch (e) { console.error('Renegotiation error:', e); }
+}
+
 function vcCreatePeer(remoteUid) {
     const pc = new RTCPeerConnection(VC_STUN);
 
@@ -2180,9 +2193,9 @@ async function vcToggleShare() {
                     video: {
                         mandatory: {
                             chromeMediaSource: 'desktop',
-                            chromeMediaSourceId: sourceId,
-                            maxFrameRate: 60
-                        }
+                            chromeMediaSourceId: sourceId
+                        },
+                        frameRate: { ideal: 30, max: 60 }
                     }
                 });
             } else {
@@ -2197,18 +2210,20 @@ async function vcToggleShare() {
             vcScreenSharing = true;
 
             // Replace or add video track in all peer connections
-            Object.values(vcPeers).forEach(({ pc }) => {
-                if (!pc || pc.signalingState === 'closed') return;
+            for (const [uid, peer] of Object.entries(vcPeers)) {
+                const pc = peer.pc;
+                if (!pc || pc.signalingState === 'closed') continue;
                 const senders  = pc.getSenders();
                 const vidSend  = senders.find(s => s.track && s.track.kind === 'video');
                 if (vidSend) {
                     // Replace existing video sender — no renegotiation needed
                     vidSend.replaceTrack(vcScreenTrack).catch(e => console.warn('replaceTrack:', e));
                 } else {
-                    // No video sender yet — add a new one (triggers renegotiation)
+                    // No video sender yet — add a new one and renegotiate
                     pc.addTrack(vcScreenTrack, screenStream);
+                    vcRenegotiate(uid, pc);
                 }
-            });
+            }
 
             // Show screen share in our local tile (separate "share" tile)
             vcRenderShareTile(screenStream);
@@ -2357,6 +2372,13 @@ function vcFullscreen(tileId) {
     const el = document.getElementById(tileId);
     if (!el) return;
 
+    // Electron: native requestFullscreen is unreliable from file:// origins
+    // Always use CSS-based pseudo-fullscreen in the desktop app
+    if (window.electronAPI) {
+        vcTogglePseudoFullscreen(el);
+        return;
+    }
+
     const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
 
     if (fsEl === el) {
@@ -2371,13 +2393,11 @@ function vcFullscreen(tileId) {
         if (el.requestFullscreen) {
             el.requestFullscreen().catch(err => {
                 console.warn('Fullscreen request failed:', err);
-                // Fallback: maximize tile to fill the content area
                 vcTogglePseudoFullscreen(el);
             });
         } else if (el.webkitRequestFullscreen) {
             el.webkitRequestFullscreen();
         } else {
-            // No native fullscreen API — use CSS fallback
             vcTogglePseudoFullscreen(el);
         }
     }
