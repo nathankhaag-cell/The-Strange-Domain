@@ -695,9 +695,9 @@ async function loadTextChat(channelId, isDM) {
     area.innerHTML = `<div id="messages" class="max-w-3xl mx-auto pb-24"></div>`;
 
     const msgContainer = document.getElementById("messages");
-    currentChatRef     = getMessagesRef(channelId, isDM);
+    currentChatRef     = getMessagesRef(channelId, isDM).orderByChild('timestamp').limitToLast(50);
 
-    const snap = await currentChatRef.orderByChild('timestamp').limitToLast(50).once('value');
+    const snap = await currentChatRef.once('value');
     snap.forEach(child => renderMessage(child.key, child.val()));
     // Scroll the actual overflow container, not the inner messages div
     area.scrollTop = area.scrollHeight;
@@ -850,7 +850,19 @@ function renderMessage(id, msg) {
         </div>
     `;
 
-    container.appendChild(div);
+    // Insert in correct timestamp order instead of always appending
+    div.dataset.timestamp = msg.timestamp || 0;
+    const existing = container.querySelectorAll('.message[data-timestamp]');
+    let inserted = false;
+    for (let i = existing.length - 1; i >= 0; i--) {
+        if (Number(existing[i].dataset.timestamp) <= Number(div.dataset.timestamp)) {
+            existing[i].after(div);
+            inserted = true;
+            break;
+        }
+    }
+    if (!inserted) container.prepend(div);
+
     // Live reactions listener — handles both initial state and future updates.
     listenReactions(id);
 
