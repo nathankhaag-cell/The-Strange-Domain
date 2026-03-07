@@ -417,7 +417,16 @@ function setupIPC() {
     // Link preview — fetch URL and extract Open Graph metadata
     ipcMain.handle('fetch-link-preview', async (event, url) => {
         try {
-            const html = await fetchWithTimeout(url, 8000);
+            // X.com/Twitter blocks direct fetching — redirect through fxtwitter.com
+            let fetchUrl = url;
+            try {
+                const parsed = new URL(url);
+                if (parsed.hostname.replace('www.', '') === 'x.com' || parsed.hostname.replace('www.', '') === 'twitter.com') {
+                    fetchUrl = `https://fxtwitter.com${parsed.pathname}${parsed.search}`;
+                }
+            } catch (e) { /* keep original URL */ }
+
+            const html = await fetchWithTimeout(fetchUrl, 8000);
             if (!html) return null;
 
             const og = {};

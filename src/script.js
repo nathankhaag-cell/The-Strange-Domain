@@ -2827,6 +2827,12 @@ async function processMessageEmbeds(msgId, rawText) {
                 renderYouTubeEmbed(container, url, ytId);
                 continue;
             }
+            // Twitter/X.com — use fxtwitter API (X.com blocks CORS proxies)
+            const tweetPath = extractTweetPath(url);
+            if (tweetPath) {
+                await fetchAndRenderTwitterEmbed(container, url, tweetPath);
+                continue;
+            }
             // Direct video URL → inline player (no fetch needed)
             if (DIRECT_VIDEO_RE.test(url)) {
                 renderDirectVideo(container, url);
@@ -2851,39 +2857,30 @@ async function processMessageEmbeds(msgId, rawText) {
 
 /**
  * Render a YouTube card with:
- *  - iframe player (works when embedding is allowed)
+ *  - Thumbnail + "Watch on YouTube" in Electron (iframe blocked from file:// origins)
+ *  - iframe player in browser (works when embedding is allowed)
  *  - thumbnail fallback if the video blocks embedding (Error 153 etc.)
  *  - always shows a "Watch on YouTube" link
  */
 function renderYouTubeEmbed(container, url, videoId) {
     const thumbUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
-    const embedSrc = `https://www.youtube.com/embed/${videoId}?autoplay=0`;
     const openUrl  = escapeHtml(url);
+    const isElectron = !!(window.electronAPI);
 
     const card = document.createElement('div');
     card.className = 'embed-card';
     card.style.borderLeftColor = '#ff0000';
 
-    // Build with both iframe and thumbnail fallback layered
-    card.innerHTML = `
-        <div class="embed-header">
-            <img src="https://www.google.com/s2/favicons?domain=youtube.com&sz=32" class="embed-favicon">
-            <span class="embed-site-name">YouTube</span>
-        </div>
-        <div class="embed-video-wrap" id="yt-wrap-${videoId}">
-            <iframe
-                src="${embedSrc}"
-                frameborder="0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowfullscreen
-                class="embed-video-iframe"
-                onerror="document.getElementById('yt-wrap-${videoId}').innerHTML=document.getElementById('yt-thumb-${videoId}').outerHTML">
-            </iframe>
-        </div>
-        <!-- Hidden thumbnail shown if iframe errors -->
-        <div id="yt-thumb-${videoId}" style="display:none">
-            <a href="${openUrl}" target="_blank" rel="noopener"
-               onclick="event.preventDefault();if(window.electronAPI)window.electronAPI.openExternal('${openUrl}');else window.open('${openUrl}','_blank')"
+    if (isElectron) {
+        // ── Desktop app: skip iframe entirely (YouTube blocks file:// origins) ──
+        // Show thumbnail with play overlay that opens in default browser
+        card.innerHTML = `
+            <div class="embed-header">
+                <img src="https://www.google.com/s2/favicons?domain=youtube.com&sz=32" class="embed-favicon">
+                <span class="embed-site-name">YouTube</span>
+            </div>
+            <a href="${openUrl}" rel="noopener"
+               onclick="event.preventDefault();window.electronAPI.openExternal('${openUrl}')"
                style="display:block;position:relative;cursor:pointer;">
                 <img src="${thumbUrl}" style="width:100%;border:1px solid #333;" onerror="this.style.display='none'">
                 <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
@@ -2892,48 +2889,193 @@ function renderYouTubeEmbed(container, url, videoId) {
                     <span style="color:#fff;font-size:1.5rem;margin-left:4px;">▶</span>
                 </div>
             </a>
-        </div>
-        <a href="${openUrl}" target="_blank" rel="noopener" class="embed-title"
-            onclick="event.preventDefault();if(window.electronAPI)window.electronAPI.openExternal('${openUrl}');else window.open('${openUrl}','_blank')">
-            Watch on YouTube ↗
-        </a>
-    `;
+            <a href="${openUrl}" target="_blank" rel="noopener" class="embed-title"
+                onclick="event.preventDefault();window.electronAPI.openExternal('${openUrl}')">
+                Watch on YouTube ↗
+            </a>
+        `;
+    } else {
+        // ── Browser: use iframe player with thumbnail fallback ──
+        const embedSrc = `https://www.youtube.com/embed/${videoId}?autoplay=0`;
+        card.innerHTML = `
+            <div class="embed-header">
+                <img src="https://www.google.com/s2/favicons?domain=youtube.com&sz=32" class="embed-favicon">
+                <span class="embed-site-name">YouTube</span>
+            </div>
+            <div class="embed-video-wrap" id="yt-wrap-${videoId}">
+                <iframe
+                    src="${embedSrc}"
+                    frameborder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen
+                    class="embed-video-iframe">
+                </iframe>
+            </div>
+            <!-- Hidden thumbnail shown if iframe errors -->
+            <div id="yt-thumb-${videoId}" style="display:none">
+                <a href="${openUrl}" target="_blank" rel="noopener"
+                   onclick="event.preventDefault();window.open('${openUrl}','_blank')"
+                   style="display:block;position:relative;cursor:pointer;">
+                    <img src="${thumbUrl}" style="width:100%;border:1px solid #333;" onerror="this.style.display='none'">
+                    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                                background:rgba(0,0,0,0.75);border-radius:50%;width:56px;height:56px;
+                                display:flex;align-items:center;justify-content:center;">
+                        <span style="color:#fff;font-size:1.5rem;margin-left:4px;">▶</span>
+                    </div>
+                </a>
+            </div>
+            <a href="${openUrl}" target="_blank" rel="noopener" class="embed-title"
+                onclick="event.preventDefault();window.open('${openUrl}','_blank')">
+                Watch on YouTube ↗
+            </a>
+        `;
 
-    // If the iframe fires an error event, swap to thumbnail
-    // (onerror on iframe is unreliable — use message listener instead)
-    const iframe = card.querySelector('iframe');
-    if (iframe) {
-        // YouTube posts a message when playback is blocked
-        const handler = (e) => {
-            if (typeof e.data !== 'object') return;
-            if (e.data.event === 'infoDelivery' && e.data.info && e.data.info.errorCode) {
-                swapToThumb();
-                window.removeEventListener('message', handler);
-            }
-        };
-        window.addEventListener('message', handler);
-
-        // Also swap after a short delay if the iframe src returns an error page
-        // by checking if it loaded a blank/error page via load event
-        iframe.addEventListener('load', () => {
-            try {
-                // If contentDocument is accessible and empty it's an error page
-                if (iframe.contentDocument && iframe.contentDocument.title &&
-                    iframe.contentDocument.title.toLowerCase().includes('error')) {
+        // If the iframe fires an error event, swap to thumbnail
+        const iframe = card.querySelector('iframe');
+        if (iframe) {
+            const handler = (e) => {
+                if (typeof e.data !== 'object') return;
+                if (e.data.event === 'infoDelivery' && e.data.info && e.data.info.errorCode) {
                     swapToThumb();
+                    window.removeEventListener('message', handler);
                 }
-            } catch(e) { /* cross-origin, expected */ }
-        });
-    }
+            };
+            window.addEventListener('message', handler);
 
-    function swapToThumb() {
-        const wrap  = card.querySelector(`#yt-wrap-${videoId}`);
-        const thumb = card.querySelector(`#yt-thumb-${videoId}`);
-        if (wrap && thumb) {
-            wrap.innerHTML = thumb.outerHTML;
-            thumb.remove();
+            iframe.addEventListener('load', () => {
+                try {
+                    if (iframe.contentDocument && iframe.contentDocument.title &&
+                        iframe.contentDocument.title.toLowerCase().includes('error')) {
+                        swapToThumb();
+                    }
+                } catch(e) { /* cross-origin, expected */ }
+            });
+        }
+
+        function swapToThumb() {
+            const wrap  = card.querySelector(`#yt-wrap-${videoId}`);
+            const thumb = card.querySelector(`#yt-thumb-${videoId}`);
+            if (wrap && thumb) {
+                wrap.innerHTML = thumb.outerHTML;
+                thumb.remove();
+            }
         }
     }
+
+    const dismiss = document.createElement('button');
+    dismiss.className = 'embed-dismiss';
+    dismiss.innerHTML = '✕';
+    dismiss.title = 'Hide embed';
+    dismiss.onclick = (e) => { e.stopPropagation(); card.remove(); };
+    card.appendChild(dismiss);
+    container.appendChild(card);
+}
+
+/**
+ * Extract tweet path from Twitter/X.com URLs
+ * Returns e.g. "username/status/1234567890" or null
+ */
+function extractTweetPath(url) {
+    const m = url.match(/(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]+\/status\/\d+)/);
+    return m ? m[1] : null;
+}
+
+/**
+ * Fetch tweet metadata via fxtwitter.com API (CORS-friendly) and render embed.
+ * Works in both browser and Electron — bypasses X.com's CORS blocking.
+ */
+async function fetchAndRenderTwitterEmbed(container, originalUrl, tweetPath) {
+    const openUrl = escapeHtml(originalUrl);
+    const card = document.createElement('div');
+    card.className = 'embed-card';
+    card.style.borderLeftColor = '#1da1f2';
+
+    // Try fxtwitter JSON API first (CORS-friendly)
+    let tweetData = null;
+    try {
+        const apiUrl = `https://api.fxtwitter.com/${tweetPath}`;
+        const resp = await fetch(apiUrl, { signal: AbortSignal.timeout(8000) });
+        if (resp.ok) {
+            const json = await resp.json();
+            if (json && json.tweet) tweetData = json.tweet;
+        }
+    } catch (e) {
+        console.warn('fxtwitter API failed, trying fallback:', e);
+    }
+
+    // Fallback: try fetching OG tags from fxtwitter.com HTML via Electron or CORS proxy
+    if (!tweetData) {
+        const fxUrl = `https://fxtwitter.com/${tweetPath}`;
+        let ogData = null;
+        try {
+            if (window.electronAPI && window.electronAPI.fetchLinkPreview) {
+                ogData = await window.electronAPI.fetchLinkPreview(fxUrl);
+            } else {
+                ogData = await fetchLinkPreviewBrowser(fxUrl);
+            }
+        } catch (e) { /* ignore */ }
+        if (ogData && (ogData.title || ogData.description)) {
+            tweetData = {
+                author: { name: ogData.site_name || 'X', screen_name: '' },
+                text: ogData.description || ogData.title || '',
+                media: ogData.image ? { photos: [{ url: ogData.image }] } : null,
+            };
+        }
+    }
+
+    // Build the embed card
+    const authorName = tweetData?.author?.name || '';
+    const authorHandle = tweetData?.author?.screen_name ? `@${tweetData.author.screen_name}` : '';
+    const tweetText = tweetData?.text || '';
+    const mediaUrl = tweetData?.media?.photos?.[0]?.url
+        || tweetData?.media?.all?.[0]?.url
+        || tweetData?.media?.all?.[0]?.thumbnail_url
+        || '';
+
+    let embedHtml = `
+        <div class="embed-header">
+            <img src="https://www.google.com/s2/favicons?domain=x.com&sz=32" class="embed-favicon">
+            <span class="embed-site-name">X (Twitter)</span>
+        </div>`;
+
+    if (authorName || authorHandle) {
+        embedHtml += `<div style="margin-bottom:4px;">
+            <span style="color:#00ff41;font-weight:bold;">${escapeHtml(authorName)}</span>
+            ${authorHandle ? `<span style="color:#007a2a;margin-left:6px;">${escapeHtml(authorHandle)}</span>` : ''}
+        </div>`;
+    }
+
+    if (tweetText) {
+        embedHtml += `<div class="embed-description">${escapeHtml(truncate(tweetText, 350))}</div>`;
+    }
+
+    if (mediaUrl) {
+        embedHtml += `<div class="embed-thumb-wrap">
+            <img src="${escapeHtml(mediaUrl)}" class="embed-thumb"
+                 onerror="this.parentElement.style.display='none'"
+                 loading="lazy">
+        </div>`;
+    }
+
+    embedHtml += `<a href="${openUrl}" target="_blank" rel="noopener" class="embed-title"
+        onclick="event.preventDefault();if(window.electronAPI)window.electronAPI.openExternal('${openUrl}');else window.open('${openUrl}','_blank')">
+        View on X ↗
+    </a>`;
+
+    // If we got absolutely nothing, show a minimal card
+    if (!tweetData) {
+        embedHtml = `
+            <div class="embed-header">
+                <img src="https://www.google.com/s2/favicons?domain=x.com&sz=32" class="embed-favicon">
+                <span class="embed-site-name">X (Twitter)</span>
+            </div>
+            <a href="${openUrl}" target="_blank" rel="noopener" class="embed-title"
+                onclick="event.preventDefault();if(window.electronAPI)window.electronAPI.openExternal('${openUrl}');else window.open('${openUrl}','_blank')">
+                View post on X ↗
+            </a>`;
+    }
+
+    card.innerHTML = embedHtml;
 
     const dismiss = document.createElement('button');
     dismiss.className = 'embed-dismiss';
